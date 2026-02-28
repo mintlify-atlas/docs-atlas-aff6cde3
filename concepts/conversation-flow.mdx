@@ -1,0 +1,335 @@
+---
+title: Conversation flow
+description: How Reze manages multi-turn conversations with context memory
+---
+
+## Overview
+
+Reze maintains conversation context across multiple turns using SQLite-based persistence. Each conversation is identified by a unique UUID, and all messages are stored with timestamps, roles, and content for retrieval in subsequent interactions.
+
+## Conversation lifecycle
+
+### Creating a conversation
+
+When a new chat session begins, a unique conversation ID is generated:
+
+```python src/services/conversation.py
+async def create_conversation(self, username: str = "anonymous") -> str:
+    """Create a new conversation with unique ID.
+    
+    Args:
+        username: Username identifier for conversation
+    
+    Returns:
+        Unique conversation ID (UUID)
+    """
+    conversation_id = str(uuid.uuid4())
+    logger.info(f"Created new conversation: {conversation_id} for user: {username}")
+    return conversation_id
+```
+
+<Info>
+Each conversation is assigned a UUID v4 identifier, ensuring global uniqueness and allowing conversations to be tracked across sessions.
+</Info>
+
+### Storing messages
+
+Every message (both user and assistant) is persisted to the database:
+
+```python src/services/conversation.py
+async def add_message(
+    self,
+    conversation_id: str,
+    role: str,
+    content: str,
+    username: str = "anonymous",
+) -> None:
+    """Add a message to conversation history.
+    
+    Args:
+        conversation_id: Unique conversation identifier
+        role: Message role ("user" or "assistant")
+        content: Message content
+        username: Username identifier for message
+    """
+    try:
+        async with async_session_maker() as db_session:
+            message = ConversationLog(
+                conversation_id=conversation_id,
+                role=role,
+                content=content,
+                username=username,
+            )
+            db_session.add(message)
+            await db_session.commit()
+            await db_session.refresh(message)
+        
+        logger.info(
+            f"Added {role} message to {conversation_id} ({username}): {content[:50]}... (ID: {message.id})"
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to add message to {conversation_id}: {e}", exc_info=True
+        )
+        raise
+```
+
+<Note>
+Messages are stored asynchronously using SQLAlchemy's async session maker, ensuring non-blocking database operations.
+</Note>
+
+### Retrieving conversation history
+
+When processing a new message, the system retrieves previous context:
+
+```python src/services/conversation.py
+async def get_conversation_history(
+    self,
+    conversation_id: str,
+    limit: int | None = None,
+) -> list[ChatMessage]:
+    """Retrieve conversation history for a specific conversation.
+    
+    Args:
+        conversation_id: Unique conversation identifier
+        limit: Maximum number of messages to return (None = all)
+    
+    Returns:
+        List of chat messages in chronological order
+    """
+    try:
+        async with async_session_maker() as db_session:
+            stmt = (
+                select(ConversationLog)
+                .where(ConversationLog.conversation_id == conversation_id)
+                .order_by(ConversationLog.timestamp)
+            )
+            
+            result = await db_session.execute(stmt)
+            db_messages = result.scalars().all()
+            
+            messages = [
+                ChatMessage(
+                    role=msg.role,
+                    content=msg.content,
+                    timestamp=msg.timestamp,
+                )
+                for msg in db_messages
+            ]
+            
+            if limit and len(messages) > limit:
+                messages = messages[-limit:]
+            
+            return messages
+    except Exception as e:
+        logger.error(
+            f"Failed to get conversation history for {conversation_id}: {e}",
+            exc_info=True,
+        )
+        return []
+```
+
+<Tip>
+The `limit` parameter allows you to control context window size, preventing token limits from being exceeded in long conversations.
+</Tip>
+
+## Context integration with RAG
+
+Conversation history is combined with RAG-retrieved documentation to provide comprehensive context:
+
+```python src/services/rag.py
+async def query_stream(
+    self,
+    query: str,
+    conversation_history: list | None = None,
+    use_rag: bool = True,
+    k: int = 5,
+) -> AsyncGenerator[str, None]:
+    """Query with RAG and stream response.
+    
+    Args:
+        query: User's question or request
+        conversation_history: List of previous messages for context
+        use_rag: Whether to use RAG for context (default: True)
+        k: Number of documents to retrieve (default: 5)
+    """
+    if use_rag:
+        self._retrieve_documents(query, k=k)
+    
+    if conversation_history:
+        history_text = "\n\n".join(
+            f"{m.get('role', 'user').upper()}: {m.get('content', '')}"
+            for m in conversation_history
+        )
+        prompt = f"{history_text}\n\nNow respond to this: {query}"
+    else:
+        prompt = query
+    
+    async with self.agent.run_stream(prompt) as result:
+        previous_text = ""
+        async for chunk in result.stream():
+            if len(chunk) > len(previous_text):
+                delta = chunk[len(previous_text) :]
+                if delta:
+                    yield delta
+                previous_text = chunk
+```
+
+## Message structure
+
+Messages are structured using Pydantic models for type safety:
+
+```python src/services/conversation.py
+class ChatMessage(BaseModel):
+    """Represents a single message in a conversation."""
+    
+    role: str
+    content: str
+    timestamp: datetime | None = None
+```
+
+Each message contains:
+- **role**: Either `"user"` or `"assistant"`
+- **content**: The actual message text
+- **timestamp**: When the message was created
+
+## Conversation management features
+
+### Listing user conversations
+
+Retrieve all conversations for a specific user with metadata:
+
+```python src/services/conversation.py
+async def get_user_conversations(
+    self,
+    username: str,
+) -> list[dict[str, Any]]:
+    """Get all conversations for a specific user.
+    
+    Args:
+        username: Username identifier
+    
+    Returns:
+        List of conversation metadata with ID, message count, etc.
+    """
+    async with async_session_maker() as db_session:
+        stmt = (
+            select(
+                ConversationLog.conversation_id,
+                func.min(ConversationLog.timestamp).label("created_at"),
+                func.count(ConversationLog.id).label("message_count"),
+                func.max(ConversationLog.timestamp).label("last_updated"),
+            )
+            .where(ConversationLog.username == username)
+            .group_by(ConversationLog.conversation_id)
+            .order_by(func.max(ConversationLog.timestamp).desc())
+        )
+        
+        result = await db_session.execute(stmt)
+        conversations = result.all()
+        
+        return [
+            {
+                "conversation_id": conv.conversation_id,
+                "created_at": conv.created_at,
+                "message_count": conv.message_count,
+                "last_updated": conv.last_updated,
+            }
+            for conv in conversations
+        ]
+```
+
+### Getting conversation statistics
+
+Retrieve detailed statistics about a specific conversation:
+
+```python src/services/conversation.py
+async def get_conversation_stats(
+    self,
+    conversation_id: str,
+) -> dict[str, Any]:
+    """Get statistics about a specific conversation.
+    
+    Args:
+        conversation_id: Unique conversation identifier
+    
+    Returns:
+        Dictionary with message count, first/last timestamps, etc.
+    """
+    async with async_session_maker() as db_session:
+        stmt = select(ConversationLog).where(
+            ConversationLog.conversation_id == conversation_id
+        )
+        result = await db_session.execute(stmt)
+        messages = result.scalars().all()
+        
+        if not messages:
+            return {
+                "conversation_id": conversation_id,
+                "message_count": 0,
+                "exists": False,
+            }
+        
+        stats = {
+            "conversation_id": conversation_id,
+            "message_count": len(messages),
+            "first_message": messages[0].timestamp,
+            "last_message": messages[-1].timestamp,
+            "exists": True,
+        }
+        
+        user_count = sum(1 for m in messages if m.role == "user")
+        assistant_count = sum(1 for m in messages if m.role == "assistant")
+        
+        stats["user_messages"] = user_count
+        stats["assistant_messages"] = assistant_count
+        
+        return stats
+```
+
+### Deleting conversations
+
+Remove a conversation and all associated messages:
+
+```python src/services/conversation.py
+async def delete_conversation(self, conversation_id: str) -> None:
+    """Delete a conversation and all its messages.
+    
+    Args:
+        conversation_id: Unique conversation identifier to delete
+    """
+    try:
+        async with async_session_maker() as db_session:
+            stmt = delete(ConversationLog).where(
+                ConversationLog.conversation_id == conversation_id
+            )
+            await db_session.execute(stmt)
+            await db_session.commit()
+        
+        logger.info(f"Deleted conversation: {conversation_id}")
+    
+    except Exception as e:
+        logger.error(f"Failed to delete conversation: {e}")
+        raise
+```
+
+<Note>
+Conversation deletion is permanent and cannot be undone. Always confirm with users before deleting their conversation history.
+</Note>
+
+## Multi-turn context flow
+
+Here's how context flows through a multi-turn conversation:
+
+1. **User sends message**: New message arrives with `conversation_id`
+2. **History retrieval**: System fetches previous messages from SQLite
+3. **Context formatting**: History is formatted into a prompt with the new query
+4. **RAG enhancement**: Relevant documentation is retrieved from Memvid
+5. **Agent processing**: GLM 4.7 processes the combined context
+6. **Response generation**: Agent generates response with full context awareness
+7. **Message storage**: Both user message and assistant response are stored
+8. **Response delivery**: Streamed or complete response is sent to client
+
+<Info>
+This architecture ensures that each turn has access to the full conversation context while maintaining efficient storage and retrieval patterns.
+</Info>

@@ -1,0 +1,66 @@
+---
+title: Get email status
+description: Get the delivery status of a sent email using the PydanticAI tool
+---
+
+## Overview
+
+The `get_email_status` tool retrieves the delivery status of an email sent through Resend.com. This tool should always be called when a user asks about email status.
+
+## Parameters
+
+<ParamField path="email_id" type="string" required>
+  The unique email ID from Resend. This can come from:
+  - User provides it directly (most common)
+  - From a previous `send_email` operation in this conversation
+  - From conversation context/memory
+</ParamField>
+
+## Return value
+
+<ResponseField name="result" type="string">
+  A formatted string containing the email status information, or error message if the operation fails.
+  
+  The response includes:
+  - Email ID and current status
+  - Creation timestamp
+  - Last event (if available)
+  - Status-specific message explaining the current state
+  
+  **Possible statuses:**
+  - `queued`: The email is queued and will be sent shortly
+  - `sent`: The email has been sent to the recipient's mail server
+  - `delivered`: The email has been successfully delivered to the recipient
+  - `bounced`: The email bounced - the recipient's mail server rejected it
+  - `complained`: The recipient marked the email as spam
+</ResponseField>
+
+## Usage guidelines
+
+**Always call this tool when:**
+- User asks about email status
+- Even if they provide the email_id directly
+
+## Example
+
+```python
+data = GetEmailStatusRequest(email_id="abc123def456")
+
+result = await get_email_status(ctx, data)
+# Returns formatted status information:
+# "Email abc123def456 status: DELIVERED
+# - Created: 2024-01-15 10:30:00
+# - Last event: delivered
+# ✓ The email has been successfully delivered to the recipient."
+```
+
+## Error handling
+
+If the email ID is invalid or not found, returns:
+```
+✗ Failed to retrieve email status: {error}. Please verify the email ID.
+```
+
+## Source code
+
+See the implementation in `src/tools/resend.py:36`

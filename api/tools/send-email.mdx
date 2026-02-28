@@ -1,0 +1,67 @@
+---
+title: Send email
+description: Send an email via Resend.com API using the PydanticAI tool
+---
+
+## Overview
+
+The `send_email` tool sends an email through the Resend.com API. This tool should only be called when the user wants to send an email and all required parameters have been collected and confirmed.
+
+## Parameters
+
+<ParamField path="to" type="EmailStr" required>
+  Recipient email address. Must be a valid email format.
+</ParamField>
+
+<ParamField path="subject" type="string" required>
+  Email subject line
+</ParamField>
+
+<ParamField path="html" type="string" required>
+  Email body content in HTML format
+</ParamField>
+
+<ParamField path="from" type="EmailStr">
+  Sender email address. Optional parameter that can be omitted if not provided by the user.
+</ParamField>
+
+<ParamField path="attachments" type="list[dict]">
+  List of attachment dictionaries. Each attachment should contain file information.
+</ParamField>
+
+## Return value
+
+<ResponseField name="result" type="string">
+  Success message with the email ID, or error message if the operation fails.
+  
+  - **Success**: Returns a message like `"✓ Email sent successfully! Email ID: {result.id}. It should be delivered shortly. Would you like me to check its delivery status?"`
+  - **Error**: Returns a message like `"✗ Failed to send email: {error}. Please check the email address and try again."`
+</ResponseField>
+
+## Usage guidelines
+
+**Call this tool only when:**
+- User wants to send an email
+- You have collected ALL required parameters (to, subject, html)
+- User has confirmed the details are correct
+
+**Do not call this tool if:**
+- Any required parameter is missing - ask the user for missing information first
+
+## Example
+
+```python
+data = SendEmailRequest(
+    to="recipient@example.com",
+    subject="Hello from Reze AI",
+    html="<p>This is a test email</p>",
+    from_email="sender@example.com"
+)
+
+result = await send_email(ctx, data)
+# Returns: "✓ Email sent successfully! Email ID: abc123..."
+```
+
+## Source code
+
+See the implementation in `src/tools/resend.py:9`

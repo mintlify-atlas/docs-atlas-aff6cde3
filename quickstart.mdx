@@ -1,80 +1,362 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with Reze and send your first email in under 5 minutes
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+Before you begin, make sure you have:
 
-### Step 1: Set up your local environment
+<CardGroup cols={2}>
+  <Card title="Python 3.12+" icon="python">
+    Download from [python.org](https://python.org)
+  </Card>
+  <Card title="Resend API key" icon="key">
+    Sign up at [resend.com](https://resend.com/api-keys)
+  </Card>
+  <Card title="GLM API key" icon="brain">
+    Get your key from [z.ai](https://open.bigmodel.cn/)
+  </Card>
+  <Card title="Verified domain" icon="envelope">
+    Add a domain in your Resend dashboard
+  </Card>
+</CardGroup>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+<Warning>
+You need a verified domain in Resend to send emails. The free tier allows sending to your own email address for testing.
+</Warning>
+
+## Installation
+
+<Steps>
+  <Step title="Install uv package manager">
+    uv is the fastest way to manage Python dependencies. Install it with pip:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    pip install uv
+    ```
+  </Step>
+
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/Nneji123/reze-agent.git
+    cd reze-agent
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Let uv handle all dependencies automatically:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    ```bash
+    uv sync
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    This creates a virtual environment and installs all required packages from `pyproject.toml`:
+    - `fastapi>=0.104.0` - Web framework
+    - `uvicorn[standard]>=0.24.0` - ASGI server
+    - `pydantic-ai>=0.1.0` - AI agent framework
+    - `memvid-sdk>=1.0.0` - RAG capabilities
+    - `sqlalchemy[asyncio]>=2.0.0` - Database ORM
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Configure environment variables">
+    Copy the example environment file and fill in your API keys:
+    
+    ```bash
+    cp env.example .env
+    ```
+    
+    Edit `.env` with your actual values:
+    
+    ```bash .env
+    # GLM 4.7 AI from z.ai
+    GLM_API_KEY=your_glm_api_key_here
+    GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+    GLM_MODEL=glm-4.7
+    
+    # Resend.com
+    RESEND_API_KEY=re_xxxxxxxxxxxx
+    RESEND_FROM_EMAIL=noreply@yourdomain.com
+    
+    # Memvid RAG
+    MEMVID_FILE_PATH=./memory.mv2
+    
+    # Database
+    DATABASE_URL=sqlite+aiosqlite:///./database.db
+    ```
+    
+    <Tip>
+    Keep your `.env` file secure and never commit it to version control. The `.gitignore` file already excludes it.
+    </Tip>
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Populate the knowledge base">
+    Load Resend documentation into Memvid for RAG capabilities:
+    
+    ```bash
+    uv run python scripts/populate_memvid.py
+    ```
+    
+    This creates a `memory.mv2` file containing embeddings of Resend documentation. The process takes about 1-2 minutes.
+    
+    <Info>
+    This step is optional for sending emails, but required if you want to ask questions about Resend features.
+    </Info>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Start the server">
+    Launch Reze with a single command:
+    
+    ```bash
+    uv run python main.py
+    ```
+    
+    You should see output like:
+    
+    ```
+    ================================================================================
+    🚀 Reze AI Agent Starting...
+    ================================================================================
+    Host: 0.0.0.0
+    Port: 8000
+    Debug Mode: True
+    Log Level: INFO
+    GLM Model: glm-4.7
+    Memvid File: ./memory.mv2
+    Database: sqlite+aiosqlite:///./database.db
+    ================================================================================
+    INFO:     Started server process [12345]
+    INFO:     Waiting for application startup.
+    INFO:     Application startup complete.
+    INFO:     Uvicorn running on http://0.0.0.0:8000
+    ```
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Send your first email
+
+Now that Reze is running, let's send an email through the chat interface.
+
+### Using the web interface
+
+<Steps>
+  <Step title="Open your browser">
+    Navigate to [http://localhost:8000](http://localhost:8000)
+    
+    You'll see a clean chat interface powered by Reze.
+  </Step>
+
+  <Step title="Start a conversation">
+    Type a message like:
+    
+    ```
+    Send an email to john@example.com welcoming him to our platform
+    ```
+    
+    Press Enter or click Send.
+  </Step>
+
+  <Step title="Provide missing details">
+    Reze will ask clarifying questions:
+    
+    ```
+    What should the subject line be?
+    ```
+    
+    Respond with:
+    
+    ```
+    Welcome to Our Platform!
+    ```
+    
+    Reze will then ask:
+    
+    ```
+    What content would you like in the email?
+    ```
+    
+    Respond with:
+    
+    ```
+    Hi John, welcome aboard! We're excited to have you.
+    ```
+  </Step>
+
+  <Step title="Email sent!">
+    Reze confirms the email was sent:
+    
+    ```
+    ✓ Email sent successfully! Email ID: 4ef2e3e1-a890-4c89-b3f1-9b4e5c6d7e8f
+    It should be delivered shortly. Would you like me to check its delivery status?
+    ```
+  </Step>
+</Steps>
+
+### Using the API
+
+You can also interact with Reze programmatically using the REST API:
+
+<CodeGroup>
+```bash cURL
+curl -N -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Send an email to john@example.com with subject Welcome and content Hi John!",
+    "username": "demo_user"
+  }'
+```
+
+```python Python
+import httpx
+import json
+
+url = "http://localhost:8000/api/chat/message"
+payload = {
+    "message": "Send an email to john@example.com with subject Welcome and content Hi John!",
+    "username": "demo_user"
+}
+
+with httpx.stream("POST", url, json=payload, timeout=30.0) as response:
+    for line in response.iter_lines():
+        if line.startswith("data: "):
+            try:
+                data = json.loads(line[6:])
+                print(data.get("text", ""), end="", flush=True)
+            except json.JSONDecodeError:
+                continue
+```
+
+```javascript JavaScript
+const url = 'http://localhost:8000/api/chat/message';
+const payload = {
+  message: 'Send an email to john@example.com with subject Welcome and content Hi John!',
+  username: 'demo_user'
+};
+
+const response = await fetch(url, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload)
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value);
+  const lines = chunk.split('\n');
+  
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const data = JSON.parse(line.slice(6));
+      process.stdout.write(data.text || '');
+    }
+  }
+}
+```
+</CodeGroup>
+
+<Note>
+The `-N` flag in cURL disables buffering for streaming responses. The `username` field isolates conversations per user.
+</Note>
+
+## Check email status
+
+After sending an email, you can track its delivery status:
+
+<CodeGroup>
+```text Chat
+Check the status of that email
+```
+
+```bash cURL
+curl -N -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Check status of email 4ef2e3e1-a890-4c89-b3f1-9b4e5c6d7e8f",
+    "username": "demo_user",
+    "conversation_id": "previous_conversation_id"
+  }'
+```
+</CodeGroup>
+
+Reze responds with detailed status information:
+
+```
+Email 4ef2e3e1-a890-4c89-b3f1-9b4e5c6d7e8f status: DELIVERED
+- Created: 2026-02-28T10:30:45Z
+- Last event: delivered
+✓ The email has been successfully delivered to the recipient.
+```
+
+<Info>
+Reze remembers the context of your conversation. If you sent an email earlier, you can simply say "check the status of that email" without providing the ID.
+</Info>
+
+## Ask about Resend features
+
+Leverage Reze's RAG capabilities to get answers about Resend:
+
+<CodeGroup>
+```text Question
+What are the email size limits in Resend?
+```
+
+```bash cURL  
+curl -N -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What are the email size limits?",
+    "username": "demo_user"
+  }'
+```
+</CodeGroup>
+
+Reze searches the Resend documentation and provides an accurate answer based on the latest information.
+
+## View API documentation
+
+Reze includes interactive API documentation powered by FastAPI:
+
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+<Warning>
+API docs are only available when `DEBUG=True` in your `.env` file. They're disabled in production for security.
+</Warning>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card
+    title="Installation methods"
+    icon="download"
+    href="/installation"
+  >
+    Explore Docker and pip installation options
+  </Card>
+  <Card
+    title="API reference"
+    icon="code"
+    href="/api/chat/message"
+  >
+    Learn about all available endpoints
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/guides/configuration"
+  >
+    Customize AI models, database, and more
+  </Card>
+  <Card
+    title="Conversation management"
+    icon="messages"
+    href="/guides/conversation-management"
+  >
+    Manage conversation history and context
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

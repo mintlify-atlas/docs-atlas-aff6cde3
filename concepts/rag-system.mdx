@@ -1,0 +1,480 @@
+---
+title: RAG system
+description: Understanding Memvid-powered retrieval-augmented generation
+---
+
+## Overview
+
+Reze uses Memvid as its RAG (Retrieval-Augmented Generation) backend to provide accurate, documentation-grounded responses. Memvid is a single-file AI memory system that supports hybrid search, entity extraction, and O(1) entity lookups.
+
+## Memvid initialization
+
+The Memvid service initializes at application startup with automatic backup and recovery:
+
+```python src/services/memvid.py
+def _initialize(self) -> None:
+    """Initialize Memvid store - create new or load existing."""
+    try:
+        logger.info(f"Initializing Memvid service at: {self.memvid_path}")
+        
+        if os.path.exists(self.memvid_path):
+            logger.info("Found existing Memvid store - loading...")
+            
+            self._create_backup()
+            
+            try:
+                self.mem = use(
+                    kind=settings.memvid_index_kind,
+                    filename=self.memvid_path,
+                    enable_lex=True,
+                    enable_vec=False,
+                    mode="open",
+                )
+                logger.success("Memvid store loaded successfully")
+            except Exception as load_error:
+                error_msg = str(load_error)
+                logger.error(f"Failed to load Memvid store: {error_msg}")
+                
+                is_corruption = any(
+                    keyword in error_msg.lower()
+                    for keyword in [
+                        "sketch track",
+                        "tantivy",
+                        "invalid",
+                        "corrupted",
+                    ]
+                )
+                
+                if is_corruption:
+                    logger.warning(
+                        "Detected Memvid file corruption, attempting recovery..."
+                    )
+                    if self._attempt_recovery():
+                        logger.success("Memvid recovered successfully")
+                        return
+                    else:
+                        logger.warning("Recovery failed, creating fresh store...")
+                
+                raise
+        else:
+            logger.info("No existing store found - creating new Memvid store...")
+            self.mem = create(
+                filename=self.memvid_path,
+                kind=settings.memvid_index_kind,
+                enable_lex=True,
+                enable_vec=False,
+            )
+            logger.success("Memvid store created successfully")
+    
+    except Exception as e:
+        logger.error(f"Failed to initialize Memvid: {e}")
+        raise
+```
+
+<Note>
+Memvid is configured with `enable_lex=True` and `enable_vec=False`, meaning it uses lexical search (BM25) but not semantic vectors in the current configuration.
+</Note>
+
+## Configuration options
+
+Memvid is configured through environment variables:
+
+```python src/config.py
+memvid_file_path: str = Field(
+    default="./memory.mv2",
+    env="MEMVID_FILE_PATH",
+    description="Path to Memvid knowledge base file",
+)
+memvid_index_kind: Literal["basic", "advanced"] = Field(
+    default="basic",
+    env="MEMVID_INDEX_KIND",
+    description="Memvid index kind (basic or advanced)",
+)
+```
+
+- **memvid_file_path**: Location of the single-file knowledge base (default: `./memory.mv2`)
+- **memvid_index_kind**: Index type - `"basic"` for simple indexes or `"advanced"` for more complex queries
+
+## Adding documents
+
+Documents are added to the knowledge base with title, content, and optional metadata:
+
+```python src/services/memvid.py
+async def add_document(
+    self,
+    text: str,
+    title: str,
+    metadata: dict | None = None,
+) -> bool:
+    """Add a document to Memvid knowledge base.
+    
+    Args:
+        text: Document content to store
+        title: Document title
+        metadata: Optional metadata dictionary (e.g., url, source, etc.)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        self._create_backup()
+        
+        await self.mem.put(
+            title=title,
+            text=text,
+            metadata=metadata or {},
+        )
+        logger.info(f"Document added: '{title}'")
+        return True
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Failed to add document '{title}': {e}")
+        
+        is_corruption = any(
+            keyword in error_msg.lower()
+            for keyword in ["tantivy", "index writer", "sketch track", "invalid"]
+        )
+        
+        if is_corruption:
+            logger.warning(
+                "Detected corruption during add_document, attempting recovery..."
+            )
+            if self._attempt_recovery():
+                try:
+                    await self.mem.put(
+                        title=title,
+                        text=text,
+                        metadata=metadata or {},
+                    )
+                    logger.info(f"Document added after recovery: '{title}'")
+                    return True
+                except Exception as retry_error:
+                    logger.error(f"Retry failed: {retry_error}")
+        
+        return False
+```
+
+<Tip>
+The system automatically creates a backup before each write operation and can recover from corruption by restoring from backup.
+</Tip>
+
+## Searching documents
+
+Memvid supports three search modes: lexical, semantic, and hybrid:
+
+```python src/services/memvid.py
+def search(
+    self,
+    query: str,
+    k: int = 5,
+    mode: str = "hybrid",
+) -> list[dict]:
+    """Search documents in Memvid.
+    
+    Args:
+        query: Search query string
+        k: Number of results to return
+        mode: Search mode - "lex" (lexical), "sem" (semantic), or "hybrid"
+    
+    Returns:
+        List of search result dictionaries
+    """
+    try:
+        results = self.mem.find(
+            query=query,
+            k=k,
+            mode=mode,
+        )
+        logger.info(
+            f"Search completed for query: '{query}' - found {len(results)} results"
+        )
+        return results
+    except Exception as e:
+        logger.error(f"Search failed for query '{query}': {e}")
+        return []
+```
+
+### Search modes
+
+- **lex**: Pure lexical search using BM25 algorithm for keyword matching
+- **sem**: Semantic search using vector embeddings (requires `enable_vec=True`)
+- **hybrid**: Combines both lexical and semantic search for best results
+
+<Info>
+The current configuration uses lexical-only search. To enable semantic search, set `enable_vec=True` during Memvid initialization.
+</Info>
+
+## Integration with RAG service
+
+The RAG service wraps Memvid to provide document retrieval for agent queries:
+
+```python src/services/rag.py
+def _retrieve_documents(
+    self,
+    query: str,
+    k: int = 5,
+    mode: str = "hybrid",
+) -> list[dict]:
+    """Retrieve relevant documents from Memvid.
+    
+    Args:
+        query: Search query
+        k: Number of results to return
+        mode: Search mode ("lex", "sem", or "hybrid")
+    
+    Returns:
+        List of document dictionaries
+    """
+    return memvid_service.search(query=query, k=k, mode=mode)
+```
+
+Documents are retrieved before the agent processes each query:
+
+```python src/services/rag.py
+async def query_stream(
+    self,
+    query: str,
+    conversation_history: list | None = None,
+    use_rag: bool = True,
+    k: int = 5,
+) -> AsyncGenerator[str, None]:
+    """Query with RAG and stream response.
+    
+    Args:
+        query: User's question or request
+        conversation_history: List of previous messages for context
+        use_rag: Whether to use RAG for context (default: True)
+        k: Number of documents to retrieve (default: 5)
+    """
+    if use_rag:
+        self._retrieve_documents(query, k=k)
+    
+    if conversation_history:
+        history_text = "\n\n".join(
+            f"{m.get('role', 'user').upper()}: {m.get('content', '')}"
+            for m in conversation_history
+        )
+        prompt = f"{history_text}\n\nNow respond to this: {query}"
+    else:
+        prompt = query
+    
+    async with self.agent.run_stream(prompt) as result:
+        previous_text = ""
+        async for chunk in result.stream():
+            if len(chunk) > len(previous_text):
+                delta = chunk[len(previous_text) :]
+                if delta:
+                    yield delta
+                previous_text = chunk
+```
+
+## Entity enrichment
+
+Memvid can extract and index entities for O(1) lookups:
+
+```python src/services/memvid.py
+def enrich_entities(self) -> bool:
+    """Extract and enrich entities from all documents.
+    
+    This process identifies entities (people, organizations, concepts, etc.)
+    and builds an O(1) lookup index for fast querying.
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        logger.info("Starting entity enrichment...")
+        self.mem.enrich(engine="rules")
+        logger.success("Entity enrichment completed")
+        return True
+    except Exception as e:
+        logger.error(f"Entity enrichment failed: {e}")
+        return False
+```
+
+Once enriched, entities can be queried directly:
+
+```python src/services/memvid.py
+def get_entity_state(self, entity_name: str) -> dict | None:
+    """Get entity state (O(1) lookup).
+    
+    Args:
+        entity_name: Name of entity to query
+    
+    Returns:
+        Entity state dictionary or None if not found
+    """
+    try:
+        result = self.mem.get_state(entity_name)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get entity state '{entity_name}': {e}")
+        return None
+```
+
+<Tip>
+Entity enrichment is useful for knowledge graphs and relationship mapping, allowing the agent to quickly access information about specific entities.
+</Tip>
+
+## Backup and recovery
+
+The system implements automatic backup before write operations:
+
+```python src/services/memvid.py
+def _create_backup(self) -> None:
+    """Create a backup of Memvid file."""
+    try:
+        if os.path.exists(self.memvid_path):
+            shutil.copy2(self.memvid_path, self.backup_path)
+            logger.debug(f"Created backup at: {self.backup_path}")
+    except Exception as e:
+        logger.warning(f"Failed to create backup: {e}")
+```
+
+And automatic recovery when corruption is detected:
+
+```python src/services/memvid.py
+def _attempt_recovery(self) -> bool:
+    """Attempt to recover from corrupted Memvid file.
+    
+    Returns:
+        True if recovery successful, False otherwise
+    """
+    try:
+        if os.path.exists(self.backup_path):
+            logger.info("Attempting to restore from backup...")
+            shutil.copy2(self.backup_path, self.memvid_path)
+            
+            try:
+                self.mem = use(
+                    kind=settings.memvid_index_kind,
+                    filename=self.memvid_path,
+                    enable_lex=True,
+                    enable_vec=False,
+                    mode="open",
+                )
+                logger.success("Successfully restored from backup")
+                return True
+            except Exception as e:
+                logger.error(f"Backup also corrupted: {e}")
+                return False
+        
+        logger.warning("No valid backup found, creating fresh Memvid store...")
+        if os.path.exists(self.memvid_path):
+            os.remove(self.memvid_path)
+            logger.info(f"Removed corrupted file: {self.memvid_path}")
+        
+        self.mem = create(
+            filename=self.memvid_path,
+            kind=settings.memvid_index_kind,
+            enable_lex=True,
+            enable_vec=False,
+        )
+        logger.success("Created fresh Memvid store")
+        return True
+    
+    except Exception as e:
+        logger.error(f"Recovery failed: {e}")
+        return False
+```
+
+<Note>
+The recovery mechanism first attempts to restore from backup. If the backup is also corrupted or doesn't exist, it creates a fresh Memvid store.
+</Note>
+
+## Knowledge base statistics
+
+Get information about the Memvid store:
+
+```python src/services/memvid.py
+def get_stats(self) -> dict:
+    """Get Memvid store statistics.
+    
+    Returns:
+        Dictionary with statistics
+    """
+    try:
+        stats = {
+            "file_path": self.memvid_path,
+            "file_size_bytes": (
+                os.path.getsize(self.memvid_path)
+                if os.path.exists(self.memvid_path)
+                else 0
+            ),
+            "file_size_mb": (
+                round(os.path.getsize(self.memvid_path) / (1024 * 1024), 2)
+                if os.path.exists(self.memvid_path)
+                else 0
+            ),
+            "index_kind": settings.memvid_index_kind,
+            "initialized": self.mem is not None,
+        }
+        return stats
+    except Exception as e:
+        logger.error(f"Failed to get stats: {e}")
+        return {
+            "file_path": self.memvid_path,
+            "file_size_bytes": 0,
+            "file_size_mb": 0,
+            "index_kind": settings.memvid_index_kind,
+            "initialized": False,
+        }
+```
+
+These statistics are logged at application startup:
+
+```python src/api/app.py
+try:
+    logger.info("Initializing Memvid service...")
+    stats = memvid_service.get_stats()
+    logger.info(f"Memvid service initialized: {stats}")
+except Exception as e:
+    logger.error(f"Failed to initialize Memvid service: {e}")
+```
+
+## Document management
+
+Count documents in the knowledge base:
+
+```python src/services/memvid.py
+async def count_documents(self) -> int:
+    """Count total number of documents in Memvid.
+    
+    Returns:
+        Number of documents
+    """
+    try:
+        results = self.mem.find(query="", k=1000)
+        return len(results)
+    except Exception as e:
+        logger.error(f"Failed to count documents: {e}")
+        return 0
+```
+
+Clear all documents (destructive operation):
+
+```python src/services/memvid.py
+def clear_all(self) -> bool:
+    """Clear all documents from Memvid.
+    
+    Warning: This is destructive and cannot be undone.
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        if os.path.exists(self.memvid_path):
+            os.remove(self.memvid_path)
+            logger.warning(f"Deleted Memvid store: {self.memvid_path}")
+        
+        self._initialize()
+        logger.success("Memvid cleared and reinitialized")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to clear Memvid: {e}")
+        return False
+```
+
+<Note>
+The `clear_all()` operation is destructive and cannot be undone. Use with caution in production environments.
+</Note>

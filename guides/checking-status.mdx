@@ -1,0 +1,290 @@
+---
+title: Checking status
+description: Check email delivery status through Reze AI
+---
+
+After sending an email, you can check its delivery status to confirm it reached the recipient. Reze AI makes this simple through natural conversation.
+
+## How it works
+
+Reze uses the `get_email_status` tool to query the Resend.com API for email delivery information. The agent will:
+
+1. Accept the email ID (from previous send or provided by you)
+2. Query the Resend API for current status
+3. Return human-readable status with explanation
+4. Suggest next steps based on status
+
+## Status types
+
+Resend.com provides these email statuses:
+
+| Status | Description |
+|--------|-------------|
+| `queued` | Email is queued and will be sent shortly |
+| `sent` | Email has been sent to the recipient's mail server |
+| `delivered` | Email has been successfully delivered to the recipient |
+| `bounced` | Email bounced - recipient's mail server rejected it |
+| `complained` | Recipient marked the email as spam |
+
+## Checking via chat
+
+### After sending an email
+
+When Reze sends an email, it offers to check the status:
+
+```
+Reze: "✓ Email sent successfully! Email ID: em_abc123xyz. 
+       It should be delivered shortly. Would you like me to 
+       check its delivery status?"
+
+You: "Yes, check the status"
+
+Reze: "Email em_abc123xyz status: SENT
+       - Created: 2026-02-28T10:30:00Z
+       - Last event: sent
+       The email has been sent to the recipient's mail server."
+```
+
+### With a specific email ID
+
+You can check any email ID directly:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Check the status of email em_xyz789abc",
+    "conversation_id": "your-conversation-id"
+  }'
+```
+
+Response:
+
+```
+Email em_xyz789abc status: DELIVERED
+- Created: 2026-02-28T09:15:00Z
+- Last event: delivered
+✓ The email has been successfully delivered to the recipient.
+```
+
+## Understanding the tool
+
+The `get_email_status` tool in `src/tools/resend.py`:
+
+```python src/tools/resend.py
+async def get_email_status(ctx: RunContext, data: GetEmailStatusRequest) -> str:
+    """Get the delivery status of a sent email.
+
+    ALWAYS CALL THIS TOOL when user asks about email status, 
+    even if they provide the email_id directly.
+
+    The email_id can come from:
+    - User provides it directly (most common)
+    - From a previous send_email operation in this conversation
+    - From conversation context/memory
+
+    REQUIRED PARAMETERS:
+    - email_id: The unique email ID from Resend
+    """
+    try:
+        result = await resend_service.get_email_status(data.email_id)
+
+        response = f"Email {data.email_id} status: {result.status.upper()}\n"
+        response += f"- Created: {result.created_at}\n"
+
+        if result.last_event:
+            response += f"- Last event: {result.last_event}\n"
+
+        if result.status == "queued":
+            response += "The email is queued and will be sent shortly."
+        elif result.status == "sent":
+            response += "The email has been sent to the recipient's mail server."
+        elif result.status == "delivered":
+            response += "✓ The email has been successfully delivered to the recipient."
+        elif result.status == "bounced":
+            response += "✗ The email bounced. The recipient's mail server rejected it. Check the email address."
+        elif result.status == "complained":
+            response += "⚠ The recipient marked the email as spam."
+        else:
+            response += f"The email status is: {result.status}"
+
+        return response
+    except Exception as e:
+        return (
+            f"✗ Failed to retrieve email status: {str(e)}. Please verify the email ID."
+        )
+```
+
+## Status responses
+
+<CodeGroup>
+```text Queued
+Email em_abc123 status: QUEUED
+- Created: 2026-02-28T10:30:00Z
+- Last event: queued
+The email is queued and will be sent shortly.
+```
+
+```text Sent
+Email em_abc123 status: SENT
+- Created: 2026-02-28T10:30:00Z
+- Last event: sent
+The email has been sent to the recipient's mail server.
+```
+
+```text Delivered
+Email em_abc123 status: DELIVERED
+- Created: 2026-02-28T10:30:00Z
+- Last event: delivered
+✓ The email has been successfully delivered to the recipient.
+```
+
+```text Bounced
+Email em_abc123 status: BOUNCED
+- Created: 2026-02-28T10:30:00Z
+- Last event: bounced
+✗ The email bounced. The recipient's mail server rejected it. 
+Check the email address.
+```
+
+```text Complained
+Email em_abc123 status: COMPLAINED
+- Created: 2026-02-28T10:30:00Z
+- Last event: complained
+⚠ The recipient marked the email as spam.
+```
+</CodeGroup>
+
+## Service implementation
+
+The underlying service (`src/services/resend.py`) queries the Resend API:
+
+```python src/services/resend.py
+async def get_email_status(self, email_id: str) -> EmailResponse:
+    logger.info(f"Fetching status for email: {email_id}")
+
+    response = await self.client.get(f"{self.base_url}/emails/{email_id}")
+    response.raise_for_status()
+
+    result = response.json()
+    status = result.get("status") or result.get("last_event", "unknown")
+    logger.info(f"Email status retrieved: {status}")
+
+    return EmailResponse(
+        id=result.get("id") or email_id,
+        status=status,
+        created_at=result.get("created_at") or None,
+        updated_at=result.get("updated_at") or None,
+        last_event=result.get("last_event") or None,
+        from_email=result.get("from") or None,
+        to=result.get("to") or [],
+        subject=result.get("subject") or None,
+    )
+```
+
+## Response model
+
+The `EmailResponse` model from `src/models/resend.py`:
+
+```python src/models/resend.py
+class EmailResponse(BaseModel):
+    id: str = Field(..., description="Email ID")
+    status: str = Field(default="unknown", description="Email status")
+    created_at: str | None = Field(None, description="Creation timestamp")
+    updated_at: str | None = Field(None, description="Last update timestamp")
+    last_event: str | None = Field(None, description="Last delivery event")
+    from_email: str | None = Field(None, alias="from", description="Sender email")
+    to: list[str] | None = Field(None, description="Recipient emails")
+    subject: str | None = Field(None, description="Email subject")
+```
+
+## Complete example flow
+
+<Steps>
+  <Step title="Send an email">
+    ```bash
+    curl -X POST http://localhost:8000/api/chat/message \
+      -H "Content-Type: application/json" \
+      -d '{
+        "message": "Send an email to test@example.com with subject \"Test\" and say \"Hello World\"",
+        "username": "alice"
+      }'
+    ```
+    
+    Response:
+    ```
+    ✓ Email sent successfully! Email ID: em_abc123xyz.
+    ```
+  </Step>
+  
+  <Step title="Check status immediately">
+    ```bash
+    curl -X POST http://localhost:8000/api/chat/message \
+      -H "Content-Type: application/json" \
+      -d '{
+        "message": "Check the status of that email",
+        "conversation_id": "same-conversation-id"
+      }'
+    ```
+    
+    Response:
+    ```
+    Email em_abc123xyz status: QUEUED
+    - Created: 2026-02-28T10:30:00Z
+    - Last event: queued
+    The email is queued and will be sent shortly.
+    ```
+  </Step>
+  
+  <Step title="Check again later">
+    Wait a few seconds and check again:
+    
+    ```bash
+    curl -X POST http://localhost:8000/api/chat/message \
+      -H "Content-Type: application/json" \
+      -d '{
+        "message": "Check it again",
+        "conversation_id": "same-conversation-id"
+      }'
+    ```
+    
+    Response:
+    ```
+    Email em_abc123xyz status: DELIVERED
+    - Created: 2026-02-28T10:30:00Z
+    - Last event: delivered
+    ✓ The email has been successfully delivered to the recipient.
+    ```
+  </Step>
+</Steps>
+
+## Error handling
+
+If the email ID is invalid or not found:
+
+```
+Reze: "✗ Failed to retrieve email status: Email not found. 
+       Please verify the email ID."
+```
+
+<Warning>
+  Email IDs are case-sensitive. Make sure to copy them exactly as returned by the send operation.
+</Warning>
+
+## Common patterns
+
+You can ask Reze in natural language:
+
+- "Check the status of email em_abc123"
+- "What's the status of the last email I sent?"
+- "Did the email to john@example.com get delivered?"
+- "Check email status em_xyz789"
+- "Has my email been delivered?"
+
+Reze will understand the intent and call the appropriate tool.
+
+## Next steps
+
+- Learn about [conversation management](/guides/conversation-management) to track emails across sessions
+- See how to [send emails](/guides/sending-emails) with Reze
+- Check the [configuration guide](/guides/configuration) for Resend API setup

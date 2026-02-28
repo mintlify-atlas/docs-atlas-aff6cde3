@@ -1,0 +1,436 @@
+---
+title: Conversation management
+description: Understand how Reze manages conversation history and context
+---
+
+Reze AI maintains conversation history in a database, allowing multi-turn interactions with context retention. Each conversation is isolated and identified by a unique ID.
+
+## How conversations work
+
+Every interaction with Reze happens within a conversation context:
+
+1. **Conversation creation**: When you send a message without a conversation ID, Reze creates a new conversation
+2. **Message storage**: All user and assistant messages are stored in the database
+3. **Context retrieval**: For each new message, Reze loads recent conversation history
+4. **Response generation**: The agent uses history + RAG to generate contextual responses
+
+<Note>
+  Conversations are isolated by `conversation_id`. Different conversations cannot access each other's context.
+</Note>
+
+## Conversation lifecycle
+
+### Creating a conversation
+
+New conversations are created automatically when you don't provide a `conversation_id`:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Hello Reze",
+    "username": "alice"
+  }'
+```
+
+The response includes `X-Conversation-ID` header:
+
+```
+X-Conversation-ID: 550e8400-e29b-41d4-a716-446655440000
+```
+
+You can also create conversations programmatically:
+
+```python src/services/conversation.py
+conversation_id = await conversation_service.create_conversation(
+    username="alice"
+)
+# Returns: "550e8400-e29b-41d4-a716-446655440000"
+```
+
+### Continuing a conversation
+
+Use the same `conversation_id` to continue the conversation:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Send an email to bob@example.com",
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000"
+  }'
+```
+
+Reze will remember previous messages in this conversation.
+
+### Deleting a conversation
+
+Permanently delete a conversation and all its messages:
+
+```bash
+curl -X DELETE http://localhost:8000/api/chat/conversations/550e8400-e29b-41d4-a716-446655440000
+```
+
+Response:
+
+```json
+{
+  "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+  "deleted": true
+}
+```
+
+## ConversationService API
+
+The `ConversationService` class in `src/services/conversation.py` manages all conversation operations.
+
+### Adding messages
+
+```python src/services/conversation.py
+await conversation_service.add_message(
+    conversation_id="550e8400-e29b-41d4-a716-446655440000",
+    role="user",  # "user" or "assistant"
+    content="Send an email to bob@example.com",
+    username="alice",
+)
+```
+
+Implementation:
+
+```python src/services/conversation.py
+async def add_message(
+    self,
+    conversation_id: str,
+    role: str,
+    content: str,
+    username: str = "anonymous",
+) -> None:
+    """Add a message to conversation history."""
+    try:
+        async with async_session_maker() as db_session:
+            message = ConversationLog(
+                conversation_id=conversation_id,
+                role=role,
+                content=content,
+                username=username,
+            )
+            db_session.add(message)
+            await db_session.commit()
+            await db_session.refresh(message)
+
+        logger.info(
+            f"Added {role} message to {conversation_id} ({username}): {content[:50]}..."
+        )
+    except Exception as e:
+        logger.error(f"Failed to add message to {conversation_id}: {e}")
+        raise
+```
+
+### Retrieving history
+
+```python src/services/conversation.py
+messages = await conversation_service.get_conversation_history(
+    conversation_id="550e8400-e29b-41d4-a716-446655440000",
+    limit=20,  # Last 20 messages (None = all)
+)
+```
+
+Returns a list of `ChatMessage` objects:
+
+```python src/services/conversation.py
+class ChatMessage(BaseModel):
+    """Represents a single message in a conversation."""
+
+    role: str  # "user" or "assistant"
+    content: str
+    timestamp: datetime | None = None
+```
+
+Implementation:
+
+```python src/services/conversation.py
+async def get_conversation_history(
+    self,
+    conversation_id: str,
+    limit: int | None = None,
+) -> list[ChatMessage]:
+    """Retrieve conversation history for a specific conversation."""
+    try:
+        async with async_session_maker() as db_session:
+            stmt = (
+                select(ConversationLog)
+                .where(ConversationLog.conversation_id == conversation_id)
+                .order_by(ConversationLog.timestamp)
+            )
+
+            result = await db_session.execute(stmt)
+            db_messages = result.scalars().all()
+
+            messages = [
+                ChatMessage(
+                    role=msg.role,
+                    content=msg.content,
+                    timestamp=msg.timestamp,
+                )
+                for msg in db_messages
+            ]
+
+            if limit and len(messages) > limit:
+                messages = messages[-limit:]  # Return last N messages
+
+            return messages
+    except Exception as e:
+        logger.error(f"Failed to get conversation history: {e}")
+        return []
+```
+
+### Listing user conversations
+
+Get all conversations for a specific user:
+
+```bash
+curl http://localhost:8000/api/chat/conversations/alice
+```
+
+Response:
+
+```json
+{
+  "conversations": [
+    "550e8400-e29b-41d4-a716-446655440000",
+    "660e8400-e29b-41d4-a716-446655440001"
+  ],
+  "total": 2
+}
+```
+
+Implementation:
+
+```python src/services/conversation.py
+async def get_user_conversations(
+    self,
+    username: str,
+) -> list[dict[str, Any]]:
+    """Get all conversations for a specific user."""
+    try:
+        async with async_session_maker() as db_session:
+            stmt = (
+                select(
+                    ConversationLog.conversation_id,
+                    func.min(ConversationLog.timestamp).label("created_at"),
+                    func.count(ConversationLog.id).label("message_count"),
+                    func.max(ConversationLog.timestamp).label("last_updated"),
+                )
+                .where(ConversationLog.username == username)
+                .group_by(ConversationLog.conversation_id)
+                .order_by(func.max(ConversationLog.timestamp).desc())
+            )
+
+            result = await db_session.execute(stmt)
+            conversations = result.all()
+
+            return [
+                {
+                    "conversation_id": conv.conversation_id,
+                    "created_at": conv.created_at,
+                    "message_count": conv.message_count,
+                    "last_updated": conv.last_updated,
+                }
+                for conv in conversations
+            ]
+    except Exception as e:
+        logger.error(f"Failed to get user conversations: {e}")
+        return []
+```
+
+### Getting conversation stats
+
+```python src/services/conversation.py
+stats = await conversation_service.get_conversation_stats(
+    conversation_id="550e8400-e29b-41d4-a716-446655440000"
+)
+```
+
+Returns:
+
+```python
+{
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "message_count": 15,
+    "first_message": "2026-02-28T09:00:00Z",
+    "last_message": "2026-02-28T10:30:00Z",
+    "user_messages": 8,
+    "assistant_messages": 7,
+    "exists": true
+}
+```
+
+## Context window management
+
+Reze uses a context window to limit the amount of history sent to the LLM:
+
+```python src/api/routers/chat_router.py
+history = await conversation_service.get_conversation_history(
+    conversation_id=conversation_id,
+    limit=20,  # Last 20 messages
+)
+```
+
+This prevents:
+- Token limit exhaustion
+- Slow response times
+- Excessive API costs
+
+<Note>
+  The default limit is **20 messages** (10 user + 10 assistant). Older messages are stored but not included in the context.
+</Note>
+
+## How context is used
+
+From `src/api/routers/chat_router.py`, here's how conversation context flows:
+
+```python src/api/routers/chat_router.py
+# 1. User sends message
+await conversation_service.add_message(
+    conversation_id=conversation_id,
+    role="user",
+    content=request.message,
+    username=request.username,
+)
+
+# 2. Retrieve recent history
+history = await conversation_service.get_conversation_history(
+    conversation_id=conversation_id,
+    limit=20,
+)
+
+# 3. Build context for LLM
+conversation_context = []
+for msg in history:
+    if msg.role in ["user", "assistant"]:
+        conversation_context.append({
+            "role": msg.role,
+            "content": msg.content,
+        })
+
+# 4. Stream response with context
+async for chunk in rag_service.query_stream(
+    query=request.message,
+    conversation_history=conversation_context,  # Context included
+    use_rag=True,
+):
+    yield chunk
+
+# 5. Store assistant response
+await conversation_service.add_message(
+    conversation_id=conversation_id,
+    role="assistant",
+    content=full_response,
+)
+```
+
+## Database schema
+
+Conversations are stored in the `ConversationLog` table:
+
+```python src/database/models.py
+class ConversationLog(Base):
+    __tablename__ = "conversation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(String, index=True, nullable=False)
+    role = Column(String, nullable=False)  # "user" or "assistant"
+    content = Column(Text, nullable=False)
+    username = Column(String, default="anonymous")
+    timestamp = Column(DateTime, default=datetime.utcnow)
+```
+
+## Isolation guarantees
+
+Conversations are completely isolated:
+
+- **By conversation_id**: Each conversation has a unique UUID
+- **By username**: Conversations can be filtered by user
+- **No cross-talk**: One conversation cannot access another's messages
+
+Example:
+
+```python
+# Conversation A
+await conversation_service.add_message(
+    conversation_id="550e8400-e29b-41d4-a716-446655440000",
+    role="user",
+    content="Send email to alice@example.com",
+)
+
+# Conversation B (different ID)
+await conversation_service.add_message(
+    conversation_id="660e8400-e29b-41d4-a716-446655440001",
+    role="user",
+    content="Send email to bob@example.com",
+)
+
+# Getting history for A only returns A's messages
+history_a = await conversation_service.get_conversation_history(
+    conversation_id="550e8400-e29b-41d4-a716-446655440000"
+)
+# Returns: [{role: "user", content: "Send email to alice@example.com"}]
+```
+
+## Best practices
+
+### Use consistent conversation IDs
+
+Store the conversation ID on the client side to maintain context:
+
+```javascript
+// Store after first message
+const response = await fetch('/api/chat/message', {
+  method: 'POST',
+  body: JSON.stringify({ message: 'Hello' })
+});
+
+const conversationId = response.headers.get('X-Conversation-ID');
+localStorage.setItem('conversationId', conversationId);
+
+// Use in subsequent messages
+const nextResponse = await fetch('/api/chat/message', {
+  method: 'POST',
+  body: JSON.stringify({
+    message: 'Send an email',
+    conversation_id: conversationId
+  })
+});
+```
+
+### Clean up old conversations
+
+Periodically delete old or completed conversations:
+
+```python
+# Get all user conversations
+conversations = await conversation_service.get_user_conversations("alice")
+
+# Delete conversations older than 30 days
+for conv in conversations:
+    if conv["last_updated"] < thirty_days_ago:
+        await conversation_service.delete_conversation(conv["conversation_id"])
+```
+
+### Monitor conversation length
+
+Check stats to avoid excessively long conversations:
+
+```python
+stats = await conversation_service.get_conversation_stats(conversation_id)
+
+if stats["message_count"] > 100:
+    # Suggest starting a new conversation
+    logger.warning(f"Conversation {conversation_id} has {stats['message_count']} messages")
+```
+
+## Next steps
+
+- Learn how to [send emails](/guides/sending-emails) using conversation context
+- See how to [check status](/guides/checking-status) within a conversation
+- Understand [Memvid RAG](/guides/populating-memvid) integration with conversations

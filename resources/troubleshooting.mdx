@@ -1,0 +1,440 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for Reze AI agent
+---
+
+This guide covers common issues you may encounter when running Reze AI agent and how to resolve them.
+
+## Memvid issues
+
+### Memvid file corruption
+
+<Warning>
+  Memvid files can become corrupted during writes, especially if the process is interrupted or crashes during population.
+</Warning>
+
+**Symptoms:**
+- Error messages containing `sketch track`, `tantivy`, or `corrupted`
+- Failed to load Memvid store
+- Crash during `populate_memvid.py` script
+
+**Automatic recovery:**
+
+Reze includes built-in corruption detection and recovery:
+
+1. **Backup restoration**: Automatically creates `.backup` copies before writes
+2. **Fresh store creation**: If backup is also corrupted, creates new store
+3. **Retry logic**: Attempts recovery and retries failed operations
+
+See implementation in `src/services/memvid.py:94-135`
+
+**Manual recovery:**
+
+If automatic recovery fails:
+
+```bash
+# Remove corrupted file
+rm memory.mv2 memory.mv2.backup
+
+# Repopulate from scratch
+uv run python scripts/populate_memvid.py
+```
+
+<Info>
+  The populate script fetches documentation from Resend.com and rebuilds the entire knowledge base. This may take a few minutes.
+</Info>
+
+### Memvid not initialized
+
+**Error:** `Failed to initialize Memvid: [error details]`
+
+**Solutions:**
+
+<Steps>
+  <Step title="Check file path">
+    Verify `MEMVID_FILE_PATH` in `.env` points to a writable location:
+    ```bash
+    MEMVID_FILE_PATH=./memory.mv2
+    ```
+  </Step>
+  <Step title="Check permissions">
+    Ensure the application has write permissions:
+    ```bash
+    ls -la memory.mv2
+    chmod 644 memory.mv2  # If needed
+    ```
+  </Step>
+  <Step title="Verify index kind">
+    Check `MEMVID_INDEX_KIND` is either `basic` or `advanced`:
+    ```bash
+    MEMVID_INDEX_KIND=basic
+    ```
+  </Step>
+</Steps>
+
+### Empty search results
+
+**Problem:** Agent returns "I don't have information about that" for known topics
+
+**Causes:**
+
+1. **Memvid not populated**
+   ```bash
+   # Check file size (should be > 1MB if populated)
+   ls -lh memory.mv2
+   
+   # Repopulate if empty
+   uv run python scripts/populate_memvid.py
+   ```
+
+2. **Search mode mismatch**
+   
+   Default search uses `hybrid` mode. Check `src/services/memvid.py:190-218` for available modes:
+   - `lex`: Lexical (BM25) search only
+   - `sem`: Semantic vector search only
+   - `hybrid`: Combined approach (recommended)
+
+## API key issues
+
+### Invalid GLM API key
+
+<Accordion title="Error: Unauthorized (401) from GLM API">
+  **Solution:**
+  
+  1. Verify your GLM API key from [z.ai dashboard](https://open.bigmodel.cn)
+  2. Update `.env` file:
+     ```bash
+     GLM_API_KEY=your_actual_api_key_here
+     ```
+  3. Restart the server:
+     ```bash
+     uv run python main.py
+     ```
+  
+  <Note>
+    The default test key `test_glm_key` will not work in production.
+  </Note>
+</Accordion>
+
+### Invalid Resend API key
+
+<Accordion title="Error: Unauthorized (401) from Resend API">
+  **Solution:**
+  
+  1. Get your API key from [Resend dashboard](https://resend.com/api-keys)
+  2. Update `.env` file:
+     ```bash
+     RESEND_API_KEY=re_xxxxxxxxxxxx
+     ```
+  3. Verify your sender email is verified in Resend:
+     ```bash
+     RESEND_FROM_EMAIL=noreply@yourdomain.com
+     ```
+  
+  <Warning>
+    Resend requires domain verification for production use. Test keys only work with your verified email address.
+  </Warning>
+</Accordion>
+
+### Base URL configuration
+
+**Error:** `Base URL must start with http:// or https://`
+
+**Solution:**
+
+Ensure URLs in `.env` have proper protocol:
+
+```bash
+GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+RESEND_BASE_URL=https://api.resend.com
+```
+
+Validation happens in `src/config.py:81-87`
+
+## Database issues
+
+### Database locked
+
+**Error:** `database is locked` or timeout errors
+
+**Causes:**
+- Multiple processes accessing same SQLite file
+- Long-running transactions
+- File system locking issues
+
+**Solutions:**
+
+<Steps>
+  <Step title="Check for multiple instances">
+    Ensure only one server instance is running:
+    ```bash
+    # Find and stop other instances
+    ps aux | grep "python main.py"
+    kill [PID]
+    ```
+  </Step>
+  <Step title="Remove lock files">
+    ```bash
+    rm database.db-shm database.db-wal
+    ```
+  </Step>
+  <Step title="Use PostgreSQL for production">
+    SQLite is for development only. For production, use PostgreSQL:
+    ```bash
+    DATABASE_URL=postgresql+asyncpg://user:pass@host/db
+    ```
+  </Step>
+</Steps>
+
+### Schema errors
+
+**Error:** Table not found or column doesn't exist
+
+**Solution:**
+
+Reinitialize the database:
+
+```bash
+# Backup existing data
+cp database.db database.db.backup
+
+# Remove database
+rm database.db
+
+# Restart server (will auto-create tables)
+uv run python main.py
+```
+
+Table creation happens in `src/database/session.py:65-77`
+
+## Server issues
+
+### Port already in use
+
+**Error:** `Address already in use` on port 8000
+
+**Solutions:**
+
+<Tabs>
+  <Tab title="Change port">
+    Update `.env`:
+    ```bash
+    PORT=8001
+    ```
+    Or use command line:
+    ```bash
+    PORT=8001 uv run python main.py
+    ```
+  </Tab>
+  <Tab title="Kill existing process">
+    ```bash
+    # Find process using port 8000
+    lsof -i :8000
+    
+    # Kill the process
+    kill -9 [PID]
+    ```
+  </Tab>
+</Tabs>
+
+### Module not found
+
+**Error:** `ModuleNotFoundError: No module named 'fastapi'` (or other packages)
+
+**Solution:**
+
+Reinstall dependencies:
+
+```bash
+# Using uv (recommended)
+uv sync
+
+# Or using pip
+pip install -r requirements.txt
+```
+
+<Note>
+  Reze uses `uv` for dependency management. Install it with: `pip install uv`
+</Note>
+
+### Import errors
+
+**Error:** Circular import or module resolution issues
+
+**Check:**
+
+1. Working directory is project root:
+   ```bash
+   pwd  # Should be ai-resend-agent/
+   ```
+
+2. Run with proper command:
+   ```bash
+   uv run python main.py
+   # NOT: python src/api/app.py
+   ```
+
+## Email sending issues
+
+### Emails not sending
+
+<AccordionGroup>
+  <Accordion title="Check API key and domain">
+    Verify in Resend dashboard:
+    - API key is active
+    - Sender domain is verified
+    - From email matches verified domain
+    
+    ```bash
+    # Test with curl
+    curl https://api.resend.com/emails \
+      -H "Authorization: Bearer $RESEND_API_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "from": "noreply@yourdomain.com",
+        "to": "test@example.com",
+        "subject": "Test",
+        "html": "<p>Test email</p>"
+      }'
+    ```
+  </Accordion>
+  
+  <Accordion title="Check rate limits">
+    Resend has rate limits based on your plan:
+    - Free tier: 100 emails/day
+    - Check response headers for limit info
+    
+    Implementation: `src/services/resend.py:35-65`
+  </Accordion>
+  
+  <Accordion title="Verify email format">
+    Ensure email addresses are valid:
+    - Proper format: `user@domain.com`
+    - No spaces or special characters
+    - Domain has valid MX records
+    
+    Validation: `src/config.py:46-50`
+  </Accordion>
+</AccordionGroup>
+
+### Timeout errors
+
+**Error:** Request timeout when sending emails
+
+**Configuration:**
+
+Default timeout is 30 seconds. See `src/services/resend.py:25-31`:
+
+```python
+self.client = httpx.AsyncClient(
+    timeout=30.0,
+    headers={...}
+)
+```
+
+Increase if needed, but investigate slow API responses.
+
+## Conversation issues
+
+### Lost conversation context
+
+**Problem:** Agent doesn't remember previous messages
+
+**Causes:**
+
+1. **Missing conversation_id**
+   ```json
+   {
+     "message": "Check email status",
+     "conversation_id": "<previous_conversation_id>",
+     "username": "user1"
+   }
+   ```
+
+2. **Conversation expired/deleted**
+   
+   Check if conversation exists:
+   ```bash
+   curl http://localhost:8000/api/chat/conversations/user1
+   ```
+
+3. **Database cleared**
+   
+   Conversations are persisted in SQLite. If database was deleted, history is lost.
+
+### Username isolation
+
+**Problem:** Users seeing other users' conversations
+
+**Expected behavior:**
+
+Conversations are isolated by username. Each user only sees their own data:
+
+```bash
+# User1's conversations
+GET /api/chat/conversations/user1
+
+# User2's conversations (separate)
+GET /api/chat/conversations/user2
+```
+
+## Logging and debugging
+
+### Enable debug mode
+
+Update `.env`:
+
+```bash
+DEBUG=true
+LOG_LEVEL=DEBUG
+DATABASE_ECHO=true
+```
+
+Configuration in `src/config.py:12-79` and startup logging in `main.py:16-28`
+
+### View logs
+
+Logs are written to stdout with structured format:
+
+```bash
+# Run with verbose output
+uv run python main.py
+
+# Save logs to file
+uv run python main.py 2>&1 | tee app.log
+```
+
+### Health check
+
+Verify server is running:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Should return:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-20T10:30:00Z"
+}
+```
+
+## Getting help
+
+<CardGroup cols={2}>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/Nneji123/reze-agent/issues">
+    Report bugs and request features
+  </Card>
+  <Card title="Discussions" icon="comments" href="https://github.com/Nneji123/reze-agent/discussions">
+    Ask questions and share solutions
+  </Card>
+</CardGroup>
+
+<Note>
+  When reporting issues, include:
+  - Error messages and stack traces
+  - Configuration (with API keys redacted)
+  - Steps to reproduce
+  - Python version and OS
+</Note>

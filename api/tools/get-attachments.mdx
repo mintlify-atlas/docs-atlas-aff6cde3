@@ -1,0 +1,77 @@
+---
+title: Get email attachments
+description: Get attachments from a sent email using the PydanticAI tool
+---
+
+## Overview
+
+The `get_email_attachments` tool retrieves attachment information from an email sent through Resend.com. This tool should always be called when a user asks about email attachments.
+
+## Parameters
+
+<ParamField path="email_id" type="string" required>
+  The unique email ID from Resend. This can come from:
+  - User provides it directly (most common)
+  - From a previous `send_email` operation in this conversation
+  - From conversation context/memory
+</ParamField>
+
+## Return value
+
+<ResponseField name="result" type="string">
+  A formatted string containing attachment information, or error message if the operation fails.
+  
+  The response includes:
+  - Total number of attachments found
+  - For each attachment:
+    - Filename
+    - Size in MB
+    - Download URL
+  - Security warning about scanning attachments before opening
+  
+  If no attachments are found, returns: `"Email {email_id} has no attachments."`
+</ResponseField>
+
+## Usage guidelines
+
+**Always call this tool when:**
+- User asks about email attachments
+- Even if they provide the email_id directly
+
+## Example
+
+```python
+data = GetEmailStatusRequest(email_id="abc123def456")
+
+result = await get_email_attachments(ctx, data)
+# Returns formatted attachment information:
+# "Found 2 attachment(s):
+#
+# 1. document.pdf
+#    Size: 1.24 MB
+#    Download: https://attachments.resend.com/...
+#
+# 2. image.png
+#    Size: 0.45 MB
+#    Download: https://attachments.resend.com/...
+#
+# ⚠️  Warning: Always scan attachments before opening them for security."
+```
+
+## No attachments example
+
+```python
+result = await get_email_attachments(ctx, data)
+# Returns: "Email abc123def456 has no attachments."
+```
+
+## Error handling
+
+If the email ID is invalid or not found, returns:
+```
+✗ Failed to retrieve attachments: {error}. Please verify the email ID.
+```
+
+## Source code
+
+See the implementation in `src/tools/resend.py:78`

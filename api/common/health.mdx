@@ -1,0 +1,40 @@
+---
+title: Health check
+description: Check the health and status of the Reze AI agent service
+---
+
+## Endpoint
+
+<ParamField path="GET /health" type="endpoint">
+  Health check endpoint that returns service status information
+</ParamField>
+
+## Response
+
+Returns a JSON object with service health information.
+
+<ResponseField name="status" type="string">
+  Current health status of the service
+</ResponseField>
+
+<ResponseField name="service" type="string">
+  Name of the service
+</ResponseField>
+
+<ResponseField name="version" type="string">
+  Current version of the service
+</ResponseField>
+
+## Example response
+
+```json
+{
+  "status": "healthy",
+  "service": "reze-ai-agent",
+  "version": "0.1.0"
+}
+```
+
+## Source code
+
+See the implementation in `src/api/routers/common_router.py:11`

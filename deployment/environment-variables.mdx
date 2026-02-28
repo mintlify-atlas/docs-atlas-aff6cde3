@@ -1,0 +1,443 @@
+---
+title: Environment variables
+description: Complete reference for all Reze AI agent configuration options
+---
+
+Reze uses environment variables for configuration. All settings are defined in the `Settings` class in `src/config.py` and loaded from a `.env` file.
+
+## Getting started
+
+Create your configuration file from the template:
+
+```bash
+cp env.example .env
+```
+
+Then edit `.env` with your actual values.
+
+<Warning>
+  Never commit `.env` to version control! It contains sensitive API keys and credentials.
+</Warning>
+
+## Application settings
+
+Core application configuration options.
+
+<ParamField path="DEBUG" type="boolean" default="True">
+  Enable debug mode for development. Set to `False` in production.
+
+  ```bash
+  DEBUG=True
+  ```
+
+  Debug mode provides:
+  - Detailed error messages
+  - Auto-reload on code changes
+  - Verbose logging output
+</ParamField>
+
+<ParamField path="HOST" type="string" default="0.0.0.0">
+  Server host address to bind to.
+
+  ```bash
+  HOST=0.0.0.0
+  ```
+
+  - `0.0.0.0` - Listen on all interfaces (default for Docker)
+  - `127.0.0.1` - Listen only on localhost
+  - Specific IP - Listen on a specific network interface
+</ParamField>
+
+<ParamField path="PORT" type="integer" default="8000">
+  Server port number.
+
+  ```bash
+  PORT=8000
+  ```
+
+  The FastAPI application will be available at `http://{HOST}:{PORT}`.
+</ParamField>
+
+<ParamField path="LOG_LEVEL" type="string" default="INFO">
+  Logging verbosity level.
+
+  ```bash
+  LOG_LEVEL=INFO
+  ```
+
+  Valid options:
+  - `DEBUG` - Very verbose, includes all details
+  - `INFO` - Standard informational messages (recommended)
+  - `WARNING` - Only warnings and errors
+  - `ERROR` - Only errors
+  - `CRITICAL` - Only critical errors
+</ParamField>
+
+<ParamField path="SENTRY_DSN" type="string" default="" required={false}>
+  Sentry Data Source Name for error tracking.
+
+  ```bash
+  SENTRY_DSN=https://xxxxx@xxxxx.ingest.sentry.io/xxxxx
+  ```
+
+  Optional but recommended for production. Get your DSN from [Sentry.io](https://docs.sentry.io/platforms/python/guides/fastapi/).
+</ParamField>
+
+## GLM 4.7 AI settings
+
+Configuration for the GLM 4.7 language model from z.ai (OpenAI-compatible).
+
+<ParamField path="GLM_API_KEY" type="string" required>
+  Your GLM 4.7 API key from z.ai.
+
+  ```bash
+  GLM_API_KEY=your_glm_api_key_here
+  ```
+
+  Get your API key from [z.ai](https://open.bigmodel.cn/).
+
+  <Warning>
+    This is required for the agent to function. The application will fail to start without a valid API key.
+  </Warning>
+</ParamField>
+
+<ParamField path="GLM_BASE_URL" type="string" default="https://open.bigmodel.cn/api/paas/v4">
+  GLM 4.7 API base URL (OpenAI-compatible endpoint).
+
+  ```bash
+  GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+  ```
+
+  Must start with `http://` or `https://`. Use the default unless using a custom endpoint or proxy.
+</ParamField>
+
+<ParamField path="GLM_MODEL" type="string" default="glm-4.7">
+  GLM model name to use.
+
+  ```bash
+  GLM_MODEL=glm-4.7
+  ```
+
+  Available models:
+  - `glm-4.7` - Latest optimized model (recommended)
+  - `glm-4` - Previous generation model
+</ParamField>
+
+## Resend.com settings
+
+Configuration for email delivery via Resend.
+
+<ParamField path="RESEND_API_KEY" type="string" required>
+  Your Resend API key.
+
+  ```bash
+  RESEND_API_KEY=re_xxxxxxxxxxxx
+  ```
+
+  Get your API key from [Resend API Keys](https://resend.com/api-keys).
+
+  <Warning>
+    Required for email functionality. The agent will fail to send emails without a valid key.
+  </Warning>
+</ParamField>
+
+<ParamField path="RESEND_FROM_EMAIL" type="string" required>
+  Default sender email address for outgoing emails.
+
+  ```bash
+  RESEND_FROM_EMAIL=noreply@yourdomain.com
+  ```
+
+  Requirements:
+  - Must be a verified domain in your Resend account
+  - Must be a valid email format
+  - Cannot be a free email provider (Gmail, Yahoo, etc.)
+</ParamField>
+
+<ParamField path="RESEND_BASE_URL" type="string" default="https://api.resend.com">
+  Resend API base URL.
+
+  ```bash
+  RESEND_BASE_URL=https://api.resend.com
+  ```
+
+  Must start with `http://` or `https://`. Use the default unless using a proxy.
+</ParamField>
+
+## Memvid RAG settings
+
+Configuration for the Memvid knowledge base and RAG (Retrieval-Augmented Generation) system.
+
+<ParamField path="MEMVID_FILE_PATH" type="string" default="./memory.mv2">
+  Path to the Memvid knowledge base file.
+
+  ```bash
+  MEMVID_FILE_PATH=./memory.mv2
+  ```
+
+  This file stores all embeddings and knowledge base data. It will be created automatically on first run.
+
+  <Note>
+    Ensure this path is included in your Docker volumes to persist data across container restarts.
+  </Note>
+</ParamField>
+
+<ParamField path="MEMVID_INDEX_KIND" type="string" default="basic">
+  Memvid index type.
+
+  ```bash
+  MEMVID_INDEX_KIND=basic
+  ```
+
+  Options:
+  - `basic` - Lower memory usage, faster initialization (recommended)
+  - `advanced` - Higher accuracy, more memory intensive
+
+  Choose `basic` for most deployments. Use `advanced` only if you need maximum retrieval accuracy and have sufficient RAM.
+</ParamField>
+
+## Database settings
+
+Configuration for conversation history and email log persistence.
+
+<ParamField path="DATABASE_URL" type="string" default="sqlite+aiosqlite:///./database">
+  SQLAlchemy database connection URL.
+
+  <CodeGroup>
+  
+  ```bash SQLite (Development)
+  DATABASE_URL=sqlite+aiosqlite:///./database
+  ```
+
+  ```bash PostgreSQL (Production)
+  DATABASE_URL=postgresql+asyncpg://user:password@db-host:5432/reze
+  ```
+
+  </CodeGroup>
+
+  Format patterns:
+  - SQLite: `sqlite+aiosqlite:///path/to/database.db`
+  - PostgreSQL: `postgresql+asyncpg://user:pass@host:port/dbname`
+  - MySQL: `mysql+aiomysql://user:pass@host:port/dbname`
+
+  <Warning>
+    SQLite is suitable for development but not recommended for production. Use PostgreSQL for production deployments.
+  </Warning>
+</ParamField>
+
+<ParamField path="DATABASE_ECHO" type="boolean" default="false">
+  Enable SQLAlchemy query logging.
+
+  ```bash
+  DATABASE_ECHO=false
+  ```
+
+  When enabled, all SQL queries are logged to console. Useful for debugging but very verbose. Keep disabled in production.
+</ParamField>
+
+## Complete configuration example
+
+Here's a complete `.env` file with all available options:
+
+```bash .env
+# =============================================================================
+# APPLICATION SETTINGS
+# =============================================================================
+DEBUG=True
+HOST=0.0.0.0
+PORT=8000
+LOG_LEVEL=INFO
+SENTRY_DSN=your_sentry_dsn_here
+
+# =============================================================================
+# GLM 4.7 AI SETTINGS (z.ai)
+# =============================================================================
+GLM_API_KEY=your_glm_api_key_here
+GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+GLM_MODEL=glm-4.7
+
+# =============================================================================
+# RESEND.COM SETTINGS
+# =============================================================================
+RESEND_API_KEY=re_xxxxxxxxxxxx
+RESEND_FROM_EMAIL=noreply@yourdomain.com
+RESEND_BASE_URL=https://api.resend.com
+
+# =============================================================================
+# MEMVID RAG SETTINGS
+# =============================================================================
+MEMVID_FILE_PATH=./memory.mv2
+MEMVID_INDEX_KIND=basic
+
+# =============================================================================
+# DATABASE SETTINGS
+# =============================================================================
+DATABASE_URL=sqlite+aiosqlite:///./database
+DATABASE_ECHO=false
+```
+
+## Configuration loading
+
+Reze uses Pydantic Settings for configuration management (see `src/config.py:9`). The configuration system:
+
+- Reads from `.env` file automatically
+- Supports environment variable overrides
+- Validates all settings on startup
+- Provides type safety and defaults
+
+### Environment variable precedence
+
+1. System environment variables (highest priority)
+2. `.env` file values
+3. Default values in `Settings` class (lowest priority)
+
+### Case sensitivity
+
+Environment variables are **case-insensitive**. These are all equivalent:
+```bash
+DEBUG=True
+debug=True
+Debug=True
+```
+
+## Validation rules
+
+The configuration system enforces validation rules (see `src/config.py:81`):
+
+### URL validation
+
+All `*_BASE_URL` variables must start with `http://` or `https://`:
+
+```bash
+# Valid
+GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+
+# Invalid - will cause startup error
+GLM_BASE_URL=open.bigmodel.cn/api/paas/v4
+```
+
+### Email validation
+
+`RESEND_FROM_EMAIL` must be a valid email address:
+
+```bash
+# Valid
+RESEND_FROM_EMAIL=noreply@example.com
+
+# Invalid
+RESEND_FROM_EMAIL=not-an-email
+```
+
+### Type validation
+
+All variables are type-checked:
+- Booleans: `true`, `false`, `True`, `False`, `1`, `0`
+- Integers: Must be valid numbers
+- Strings: Any value accepted
+
+## Production best practices
+
+<Steps>
+  <Step title="Use environment-specific files">
+    Create separate configuration files for each environment:
+    - `.env.development`
+    - `.env.staging`
+    - `.env.production`
+
+    Load the appropriate file based on your deployment.
+  </Step>
+
+  <Step title="Secure sensitive values">
+    For production:
+    - Use secret management services (AWS Secrets Manager, HashiCorp Vault)
+    - Never commit `.env` files to version control
+    - Rotate API keys regularly
+    - Use read-only database credentials where possible
+  </Step>
+
+  <Step title="Set appropriate defaults">
+    Production-ready settings:
+    ```bash
+    DEBUG=False
+    LOG_LEVEL=WARNING
+    DATABASE_ECHO=false
+    MEMVID_INDEX_KIND=basic
+    ```
+  </Step>
+
+  <Step title="Use PostgreSQL">
+    Replace SQLite with PostgreSQL:
+    ```bash
+    DATABASE_URL=postgresql+asyncpg://user:password@db:5432/reze
+    ```
+  </Step>
+
+  <Step title="Configure error tracking">
+    Set up Sentry for production monitoring:
+    ```bash
+    SENTRY_DSN=https://xxxxx@xxxxx.ingest.sentry.io/xxxxx
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Configuration not loading
+
+If your settings aren't being applied:
+
+1. Verify `.env` file location (must be in project root)
+2. Check for syntax errors (no spaces around `=`)
+3. Ensure no trailing whitespace
+4. Verify file encoding is UTF-8
+
+### Validation errors on startup
+
+If the application fails to start with validation errors:
+
+```bash
+# Check which settings are invalid
+docker compose logs web | grep -i "validation error"
+```
+
+Common validation failures:
+- Invalid email format in `RESEND_FROM_EMAIL`
+- Missing `http://` or `https://` in base URLs
+- Invalid boolean values (use `true`/`false`, not `yes`/`no`)
+
+### API key issues
+
+If you see authentication errors:
+
+1. Verify API keys are correct (no extra spaces)
+2. Check key permissions in provider dashboards
+3. Ensure keys haven't expired or been revoked
+4. Test keys independently using curl:
+
+```bash
+# Test GLM API
+curl -H "Authorization: Bearer $GLM_API_KEY" \
+  https://open.bigmodel.cn/api/paas/v4/models
+
+# Test Resend API
+curl -H "Authorization: Bearer $RESEND_API_KEY" \
+  https://api.resend.com/domains
+```
+
+### Database connection failures
+
+For PostgreSQL connection issues:
+
+1. Verify connection string format
+2. Check database server is reachable
+3. Confirm credentials are correct
+4. Ensure database exists
+5. Test connection manually:
+
+```bash
+docker compose exec web python -c "from src.config import settings; print(settings.database_url)"
+```
+
+<Note>
+  For Docker-specific configuration, see the [Docker deployment guide](/deployment/docker).
+</Note>

@@ -1,0 +1,71 @@
+---
+title: "Delete conversation"
+description: "Delete a conversation and all its messages"
+---
+
+## Overview
+
+Permanently delete a conversation and all its associated messages. This operation is irreversible and useful for starting fresh or managing storage.
+
+<RequestExample>
+
+```bash cURL
+curl -X DELETE https://api.reze.ai/api/chat/conversations/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+</RequestExample>
+
+## Method and path
+
+<ParamField path="method" type="string" required>
+  DELETE
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  /api/chat/conversations/{conversation_id}
+</ParamField>
+
+## Authentication
+
+No authentication required for this endpoint.
+
+## Path parameters
+
+<ParamField path="conversation_id" type="string" required>
+  The unique conversation identifier to delete. Maximum 36 characters (UUID format).
+</ParamField>
+
+## Response
+
+<ResponseField name="conversation_id" type="string">
+  ID of the deleted conversation. Matches the conversation_id from the request.
+</ResponseField>
+
+<ResponseField name="deleted" type="boolean">
+  Confirmation that deletion was successful. Always true when the operation succeeds.
+</ResponseField>
+
+## Response example
+
+```json
+{
+  "conversation_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "deleted": true
+}
+```
+
+## Error handling
+
+The endpoint returns a 500 status code with an error detail message if the deletion fails:
+
+```json
+{
+  "detail": "error message"
+}
+```
+
+## Important notes
+
+- This operation is permanent and cannot be undone
+- All messages in the conversation will be deleted
+- The conversation ID will no longer be valid after deletion

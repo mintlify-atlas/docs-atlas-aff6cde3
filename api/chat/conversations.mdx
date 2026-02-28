@@ -1,0 +1,69 @@
+---
+title: "List conversations"
+description: "List all conversations for a specific user"
+---
+
+## Overview
+
+Retrieve a list of all conversation IDs for a specific user. This endpoint returns conversation identifiers with metadata about the total count.
+
+<RequestExample>
+
+```bash cURL
+curl -X GET https://api.reze.ai/api/chat/conversations/john_doe
+```
+
+</RequestExample>
+
+## Method and path
+
+<ParamField path="method" type="string" required>
+  GET
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  /api/chat/conversations/{username}
+</ParamField>
+
+## Authentication
+
+No authentication required for this endpoint.
+
+## Path parameters
+
+<ParamField path="username" type="string" required>
+  Username identifier for the user whose conversations you want to retrieve.
+</ParamField>
+
+## Response
+
+<ResponseField name="conversations" type="array">
+  List of conversation IDs (strings) for the specified user.
+</ResponseField>
+
+<ResponseField name="total" type="integer">
+  Total number of conversations for this user. Must be greater than or equal to 0.
+</ResponseField>
+
+## Response example
+
+```json
+{
+  "conversations": [
+    "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "c3d4e5f6-a7b8-9012-cdef-123456789012"
+  ],
+  "total": 3
+}
+```
+
+## Error handling
+
+The endpoint returns a 500 status code with an error detail message if the operation fails:
+
+```json
+{
+  "detail": "error message"
+}
+```

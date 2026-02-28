@@ -1,0 +1,201 @@
+---
+title: Welcome to Reze AI agent
+description: An intelligent AI assistant for Resend.com that sends emails via natural language, tracks delivery status, and provides API assistance using RAG
+---
+
+
+
+## What is Reze?
+
+Reze is a chat-only AI agent that brings natural language capabilities to your email operations. Built on top of Resend.com's powerful email infrastructure, Reze lets you send emails, track delivery status, and get instant answers about email features through simple conversations.
+
+Powered by GLM 4.7 from z.ai and enhanced with Memvid RAG (Retrieval-Augmented Generation), Reze understands your intent and executes email operations while maintaining full conversation context across multiple turns.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card
+    title="Natural language email"
+    icon="comments"
+    href="/quickstart"
+  >
+    Send emails by simply telling Reze what you want. No API calls, no JSON payloads—just natural conversation.
+  </Card>
+  <Card
+    title="Real-time delivery tracking"
+    icon="truck-fast"
+    href="/api/chat/message"
+  >
+    Check email delivery status instantly. Reze remembers which emails you sent and provides detailed status updates.
+  </Card>
+  <Card
+    title="RAG-powered assistance"
+    icon="book-open"
+    href="/concepts/rag-system"
+  >
+    Ask questions about Resend features, size limits, and best practices. Reze searches the documentation and provides accurate answers.
+  </Card>
+  <Card
+    title="Persistent memory"
+    icon="brain"
+    href="/guides/conversation-management"
+  >
+    Multi-turn conversations with full context. Reze remembers your previous messages and maintains conversation history.
+  </Card>
+</CardGroup>
+
+## How it works
+
+<Steps>
+  <Step title="User sends a message">
+    You send a natural language message through the chat interface or API, like "Send a welcome email to john@example.com"
+  </Step>
+  <Step title="AI understands intent">
+    GLM 4.7 processes your message and determines the appropriate action. If information is missing, Reze asks clarifying questions.
+  </Step>
+  <Step title="RAG enhances context">
+    Memvid searches the Resend documentation to provide accurate, up-to-date information for your query.
+  </Step>
+  <Step title="Action is executed">
+    Reze calls the appropriate Resend API endpoint and executes the operation (send email, check status, etc.).
+  </Step>
+  <Step title="Streaming response">
+    You receive a real-time streaming response with detailed feedback about the operation's success or failure.
+  </Step>
+</Steps>
+
+## Tech stack
+
+Reze is built with modern, production-ready technologies:
+
+- **Backend**: FastAPI with Python 3.12+, SQLAlchemy (async)
+- **AI**: PydanticAI framework with GLM 4.7 from z.ai (OpenAI-compatible)
+- **Knowledge base**: Memvid SDK for semantic search and RAG
+- **Database**: SQLite with aiosqlite for development, PostgreSQL ready for production
+- **Frontend**: Vanilla JavaScript with marked.js for markdown rendering
+
+<Note>
+Reze uses an OpenAI-compatible API endpoint, making it easy to swap out the AI model if needed.
+</Note>
+
+## Use cases
+
+<CardGroup cols={2}>
+  <Card title="Customer onboarding" icon="user-plus">
+    Automate welcome emails through conversational commands without writing code.
+  </Card>
+  <Card title="Transactional emails" icon="receipt">
+    Send order confirmations, receipts, and notifications by chatting with Reze.
+  </Card>
+  <Card title="Email monitoring" icon="chart-line">
+    Track delivery status and troubleshoot email issues through natural conversation.
+  </Card>
+  <Card title="Developer support" icon="code">
+    Get instant answers about Resend API features, limits, and best practices.
+  </Card>
+</CardGroup>
+
+## Architecture overview
+
+```
+User Request
+    ↓
+FastAPI Endpoint (/api/chat/message)
+    ↓
+PydanticAI Agent (GLM 4.7) ←→ Memvid RAG (Documentation Search)
+    ↓
+Resend.com API (Email Operations)
+    ↓
+Streaming Response (Server-Sent Events)
+```
+
+<Info>
+All conversations are isolated by username and stored in SQLite, ensuring privacy and maintaining context across sessions.
+</Info>
+
+## Quick example
+
+Here's how simple it is to send an email with Reze:
+
+<CodeGroup>
+```bash cURL
+curl -N -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Send an email to john@example.com welcoming him to our platform",
+    "username": "user1"
+  }'
+```
+
+```python Python
+import httpx
+import json
+
+url = "http://localhost:8000/api/chat/message"
+data = {
+    "message": "Send an email to john@example.com welcoming him to our platform",
+    "username": "user1"
+}
+
+with httpx.stream("POST", url, json=data) as response:
+    for line in response.iter_lines():
+        if line.startswith("data: "):
+            chunk = json.loads(line[6:])
+            print(chunk["text"], end="")
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8000/api/chat/message', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    message: 'Send an email to john@example.com welcoming him to our platform',
+    username: 'user1'
+  })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  console.log(decoder.decode(value));
+}
+```
+</CodeGroup>
+
+Reze will ask clarifying questions (subject, email content) and then send the email automatically.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Send your first email in under 5 minutes
+  </Card>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Set up Reze with uv, pip, or Docker
+  </Card>
+  <Card
+    title="API reference"
+    icon="code"
+    href="/api/chat/message"
+  >
+    Explore all available endpoints
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/guides/configuration"
+  >
+    Configure AI models, database, and more
+  </Card>
+</CardGroup>

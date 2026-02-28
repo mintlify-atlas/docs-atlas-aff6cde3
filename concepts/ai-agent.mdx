@@ -1,0 +1,353 @@
+---
+title: AI agent
+description: Understanding the PydanticAI agent with GLM 4.7 and tool integration
+---
+
+## Overview
+
+Reze's AI agent is built with PydanticAI, a framework for building production-grade language model applications. The agent uses GLM 4.7 from z.ai as the language model and integrates with Resend.com through structured tools.
+
+## Agent architecture
+
+### PydanticAI integration
+
+The agent is created using PydanticAI's `Agent` class with GLM 4.7 configured through an OpenAI-compatible provider:
+
+```python src/services/ai.py
+def _create_agent(self) -> Agent:
+    """Create GLM 4.7 agent with OpenAI-compatible protocol.
+    
+    Returns:
+        Configured Agent instance
+    """
+    provider = OpenAIProvider(
+        api_key=settings.glm_api_key,
+        base_url=settings.glm_base_url,
+    )
+    
+    model = OpenAIChatModel(
+        model_name=settings.glm_model,
+        provider=provider,
+    )
+    
+    return Agent(
+        model,
+        tools=ALL_TOOLS,
+        name="reze_agent",
+        system_prompt=[REZE_PERSONA, REZE_INSTRUCTIONS],
+    )
+```
+
+<Info>
+PydanticAI provides type-safe tool calling, automatic validation, and streaming support, making it ideal for production AI applications.
+</Info>
+
+### GLM 4.7 configuration
+
+GLM 4.7 is accessed through an OpenAI-compatible endpoint, allowing seamless integration with PydanticAI:
+
+```python src/config.py
+glm_api_key: str = Field(
+    default="test_glm_key",
+    env="GLM_API_KEY",
+    description="GLM 4.7 API key from z.ai",
+)
+glm_base_url: str = Field(
+    default="https://open.bigmodel.cn/api/paas/v4",
+    env="GLM_BASE_URL",
+    description="GLM 4.7 base URL (OpenAI-compatible)",
+)
+glm_model: str = Field(
+    default="glm-4.7",
+    env="GLM_MODEL",
+    description="GLM model name",
+)
+```
+
+<Tip>
+The OpenAI-compatible interface means you can swap GLM 4.7 for other models (GPT-4, Claude, etc.) with minimal code changes.
+</Tip>
+
+## Agent caching
+
+The AI service implements agent caching to avoid recreating the agent on every request:
+
+```python src/services/ai.py
+def get_agent(self) -> Agent:
+    """Get the configured AI agent.
+    
+    Returns:
+        Configured Agent instance
+    """
+    model_key = f"{settings.glm_model}@{settings.glm_base_url}"
+    
+    if self._agent is None or self._current_model != model_key:
+        self._agent = self._create_agent()
+        self._current_model = model_key
+    
+    return self._agent
+```
+
+The agent is recreated only when the model configuration changes, improving performance and reducing initialization overhead.
+
+## Tool integration
+
+### Defining tools
+
+Tools are defined as async functions with PydanticAI's `RunContext` and typed parameters:
+
+```python src/tools/resend.py
+async def send_email(ctx: RunContext, data: SendEmailRequest) -> str:
+    """Send an email via Resend.com API.
+    
+    CALL THIS TOOL ONLY WHEN:
+    - User wants to send an email
+    - You have collected ALL required parameters (to, subject, content)
+    - User has confirmed the details are correct
+    
+    REQUIRED PARAMETERS (all must be present):
+    - to: Valid email address of recipient
+    - subject: Email subject line
+    - html: Email body text or HTML
+    
+    OPTIONAL PARAMETERS:
+    - from: Sender email (skip if not provided)
+    
+    DO NOT CALL THIS TOOL if any required parameter is missing.
+    Ask the user for missing information first.
+    """
+    try:
+        result = await resend_service.send_email(data)
+        
+        return f"✓ Email sent successfully! Email ID: {result.id}. It should be delivered shortly. Would you like me to check its delivery status?"
+    except Exception as e:
+        return f"✗ Failed to send email: {str(e)}. Please check the email address and try again."
+```
+
+<Note>
+Tool docstrings serve as instructions to the LLM, guiding when and how to use each tool. Clear documentation improves tool calling accuracy.
+</Note>
+
+### Tool registration
+
+All tools are collected in a list and passed to the agent during initialization:
+
+```python src/tools/resend.py
+ALL_TOOLS = [send_email, get_email_status, get_email_attachments]
+```
+
+```python src/services/ai.py
+return Agent(
+    model,
+    tools=ALL_TOOLS,
+    name="reze_agent",
+    system_prompt=[REZE_PERSONA, REZE_INSTRUCTIONS],
+)
+```
+
+### Available tools
+
+Reze includes three Resend.com tools:
+
+#### Send email
+
+```python src/tools/resend.py
+async def send_email(ctx: RunContext, data: SendEmailRequest) -> str:
+    """Send an email via Resend.com API."""
+    try:
+        result = await resend_service.send_email(data)
+        return f"✓ Email sent successfully! Email ID: {result.id}. It should be delivered shortly. Would you like me to check its delivery status?"
+    except Exception as e:
+        return f"✗ Failed to send email: {str(e)}. Please check the email address and try again."
+```
+
+#### Get email status
+
+```python src/tools/resend.py
+async def get_email_status(ctx: RunContext, data: GetEmailStatusRequest) -> str:
+    """Get the delivery status of a sent email."""
+    try:
+        result = await resend_service.get_email_status(data.email_id)
+        
+        response = f"Email {data.email_id} status: {result.status.upper()}\n"
+        response += f"- Created: {result.created_at}\n"
+        
+        if result.last_event:
+            response += f"- Last event: {result.last_event}\n"
+        
+        if result.status == "queued":
+            response += "The email is queued and will be sent shortly."
+        elif result.status == "sent":
+            response += "The email has been sent to the recipient's mail server."
+        elif result.status == "delivered":
+            response += "✓ The email has been successfully delivered to the recipient."
+        elif result.status == "bounced":
+            response += "✗ The email bounced. The recipient's mail server rejected it. Check the email address."
+        elif result.status == "complained":
+            response += "⚠ The recipient marked the email as spam."
+        else:
+            response += f"The email status is: {result.status}"
+        
+        return response
+    except Exception as e:
+        return f"✗ Failed to retrieve email status: {str(e)}. Please verify the email ID."
+```
+
+#### Get email attachments
+
+```python src/tools/resend.py
+async def get_email_attachments(ctx: RunContext, data: GetEmailStatusRequest) -> str:
+    """Get attachments from a sent email."""
+    try:
+        attachments = await resend_service.get_email_attachments(data.email_id)
+        
+        if not attachments or len(attachments) == 0:
+            return f"Email {data.email_id} has no attachments."
+        
+        response = f"Found {len(attachments)} attachment(s):\n\n"
+        
+        for i, attachment in enumerate(attachments, 1):
+            size_mb = (
+                round(attachment.size / (1024 * 1024), 2) if attachment.size > 0 else 0
+            )
+            
+            response += f"{i}. {attachment.filename}\n"
+            response += f"   Size: {size_mb} MB\n"
+            response += f"   Download: {attachment.url}\n\n"
+        
+        response += (
+            "⚠️  Warning: Always scan attachments before opening them for security."
+        )
+        
+        return response
+    except Exception as e:
+        return f"✗ Failed to retrieve attachments: {str(e)}. Please verify the email ID."
+```
+
+<Tip>
+All tool responses include emoji indicators (✓, ✗, ⚠️) to make success/failure states immediately visible in chat interfaces.
+</Tip>
+
+## Running the agent
+
+### Non-streaming execution
+
+For simple, complete responses:
+
+```python src/services/ai.py
+async def run_agent(self, message: str):
+    """Run agent with a message (non-streaming).
+    
+    Args:
+        message: User message to process
+    
+    Returns:
+        Agent response data
+    """
+    agent = self.get_agent()
+    return await agent.run(message)
+```
+
+### Streaming execution
+
+For real-time response streaming:
+
+```python src/services/ai.py
+async def stream_agent(self, message: str):
+    """Run agent with streaming response.
+    
+    Args:
+        message: User message to process
+    
+    Yields:
+        Response chunks as they're generated
+    """
+    agent = self.get_agent()
+    
+    async with agent.run_stream(message) as result:
+        previous_text = ""
+        
+        async for chunk in result.stream():
+            if len(chunk) > len(previous_text):
+                delta = chunk[len(previous_text) :]
+                if delta:
+                    yield delta
+                previous_text = chunk
+```
+
+<Info>
+Streaming provides a better user experience by showing responses as they're generated, rather than waiting for the complete response.
+</Info>
+
+## System prompts
+
+The agent is initialized with two system prompts that define its behavior:
+
+```python src/services/ai.py
+return Agent(
+    model,
+    tools=ALL_TOOLS,
+    name="reze_agent",
+    system_prompt=[REZE_PERSONA, REZE_INSTRUCTIONS],
+)
+```
+
+- **REZE_PERSONA**: Defines the agent's personality and communication style
+- **REZE_INSTRUCTIONS**: Provides operational guidelines and tool usage instructions
+
+These prompts are imported from `src/services/prompt.py` and guide how the agent interacts with users.
+
+## Agent service singleton
+
+The AI service is exported as a singleton for application-wide access:
+
+```python src/services/ai.py
+class AIService:
+    """Service for managing AI agent with GLM 4.7."""
+    
+    def __init__(self):
+        """Initialize AI service."""
+        self._agent: Agent | None = None
+        self._current_model: str | None = None
+
+ai_service = AIService()
+```
+
+This singleton pattern ensures consistent agent configuration across all requests.
+
+## Integration with RAG
+
+The RAG service uses the AI service's agent for enhanced queries:
+
+```python src/services/rag.py
+class RAGService:
+    """Service for Retrieval-Augmented Generation."""
+    
+    def __init__(self):
+        """Initialize RAG service."""
+        self.agent = ai_service.get_agent()
+```
+
+This allows the RAG service to leverage the same agent configuration while adding document retrieval capabilities.
+
+## Type safety with Pydantic
+
+Tool parameters are validated using Pydantic models:
+
+```python src/tools/resend.py
+from src.models.resend import GetEmailStatusRequest, SendEmailRequest
+
+async def send_email(ctx: RunContext, data: SendEmailRequest) -> str:
+    """Send an email via Resend.com API."""
+    ...
+
+async def get_email_status(ctx: RunContext, data: GetEmailStatusRequest) -> str:
+    """Get the delivery status of a sent email."""
+    ...
+```
+
+PydanticAI automatically validates tool inputs against these models, ensuring type safety and reducing runtime errors.
+
+<Note>
+Pydantic validation happens before the tool executes, catching invalid inputs early and providing clear error messages to the LLM.
+</Note>

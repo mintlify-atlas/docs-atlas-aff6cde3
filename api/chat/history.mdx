@@ -1,0 +1,103 @@
+---
+title: "Get conversation history"
+description: "Retrieve full conversation history for a specific session"
+---
+
+## Overview
+
+Retrieve all messages (user and assistant) for a specific conversation in chronological order. This endpoint is useful for debugging or reviewing past interactions with the agent.
+
+<RequestExample>
+
+```bash cURL
+curl -X GET https://api.reze.ai/api/chat/conversations/a1b2c3d4-e5f6-7890-abcd-ef1234567890/history
+```
+
+</RequestExample>
+
+## Method and path
+
+<ParamField path="method" type="string" required>
+  GET
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  /api/chat/conversations/{conversation_id}/history
+</ParamField>
+
+## Authentication
+
+No authentication required for this endpoint.
+
+## Path parameters
+
+<ParamField path="conversation_id" type="string" required>
+  The unique conversation identifier. Maximum 36 characters (UUID format).
+</ParamField>
+
+## Response
+
+<ResponseField name="conversation_id" type="string">
+  The unique conversation identifier. Matches the conversation_id from the request.
+</ResponseField>
+
+<ResponseField name="messages" type="array">
+  List of all messages in chronological order. Each message contains:
+  
+  <ResponseField name="messages[].role" type="string">
+    Message role: either "user" or "assistant".
+  </ResponseField>
+  
+  <ResponseField name="messages[].content" type="string">
+    Message content. Can be between 1-50,000 characters.
+  </ResponseField>
+  
+  <ResponseField name="messages[].timestamp" type="string" optional>
+    ISO format timestamp when the message was created.
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="message_count" type="integer">
+  Total number of messages in this conversation. Must be greater than or equal to 0.
+</ResponseField>
+
+## Response example
+
+```json
+{
+  "conversation_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Send an email to john@example.com",
+      "timestamp": "2024-01-15T10:30:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Sure! What should the subject be?",
+      "timestamp": "2024-01-15T10:30:02Z"
+    },
+    {
+      "role": "user",
+      "content": "Welcome email",
+      "timestamp": "2024-01-15T10:30:15Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Got it. What should the email say?",
+      "timestamp": "2024-01-15T10:30:17Z"
+    }
+  ],
+  "message_count": 4
+}
+```
+
+## Error handling
+
+The endpoint returns a 404 status code if the conversation is not found:
+
+```json
+{
+  "detail": "Conversation not found: error message"
+}
+```

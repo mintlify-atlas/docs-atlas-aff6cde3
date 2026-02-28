@@ -1,0 +1,370 @@
+---
+title: Docker deployment
+description: Deploy Reze AI agent using Docker and Docker Compose
+---
+
+Reze AI agent is containerized and ready for Docker deployment. This guide covers both standalone Docker and Docker Compose deployments.
+
+## Prerequisites
+
+- Docker 20.10 or later
+- Docker Compose 2.0 or later (for compose deployment)
+- At least 2GB RAM available
+- Required API keys (GLM, Resend)
+
+## Quick start with Docker Compose
+
+The fastest way to deploy Reze is using Docker Compose.
+
+<Steps>
+  <Step title="Clone and configure">
+    Clone the repository and set up your environment file:
+
+    ```bash
+    git clone <repository-url>
+    cd reze
+    cp env.example .env
+    ```
+
+    Edit `.env` with your actual configuration values.
+  </Step>
+
+  <Step title="Build and run">
+    Start the application with Docker Compose:
+
+    ```bash
+    docker compose up -d
+    ```
+
+    The service will be available at `http://localhost:8000`.
+  </Step>
+
+  <Step title="Verify deployment">
+    Check the service health:
+
+    ```bash
+    curl http://localhost:8000/health
+    docker compose logs -f web
+    ```
+  </Step>
+</Steps>
+
+## Docker Compose configuration
+
+The `compose.yml` file defines the complete service configuration:
+
+```yaml compose.yml
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - ./memory.mv2:/app/memory.mv2
+      - ./database.db:/app/database.db
+    restart: unless-stopped
+```
+
+### Configuration details
+
+<ParamField path="ports" type="string[]">
+  Maps container port 8000 to host port 8000. Modify the host port if needed: `"3000:8000"`
+</ParamField>
+
+<ParamField path="env_file" type="string[]">
+  Loads environment variables from `.env` file. See [environment variables](/deployment/environment-variables) for full reference.
+</ParamField>
+
+<ParamField path="volumes" type="string[]">
+  - `.:/app` - Mounts source code for development (optional in production)
+  - `./memory.mv2:/app/memory.mv2` - Persists Memvid knowledge base
+  - `./database.db:/app/database.db` - Persists SQLite database
+</ParamField>
+
+<ParamField path="restart" type="string" default="unless-stopped">
+  Automatically restarts the container unless explicitly stopped.
+</ParamField>
+
+<Note>
+  The volumes ensure that your conversation history and knowledge base persist across container restarts.
+</Note>
+
+## Standalone Docker deployment
+
+For manual Docker deployments without Compose:
+
+<Steps>
+  <Step title="Build the image">
+    ```bash
+    docker build -t reze-ai:latest .
+    ```
+  </Step>
+
+  <Step title="Run the container">
+    ```bash
+    docker run -d \
+      --name reze \
+      -p 8000:8000 \
+      --env-file .env \
+      -v $(pwd)/memory.mv2:/app/memory.mv2 \
+      -v $(pwd)/database.db:/app/database.db \
+      --restart unless-stopped \
+      reze-ai:latest
+    ```
+  </Step>
+
+  <Step title="Monitor logs">
+    ```bash
+    docker logs -f reze
+    ```
+  </Step>
+</Steps>
+
+## Dockerfile architecture
+
+The Dockerfile uses a multi-stage approach optimized for Python applications:
+
+```dockerfile Dockerfile
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV UV_HTTP_TIMEOUT=3000
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        wget \
+        unzip \
+        dpkg \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+
+RUN uv lock && uv sync --no-dev --locked
+
+COPY . /app
+
+RUN uv run scripts/populate_memvid.py
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+
+CMD uv run main.py
+```
+
+### Key features
+
+**Base image**: Uses `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` for fast Python dependency management with uv.
+
+**Python optimization**:
+- `PYTHONDONTWRITEBYTECODE=1` - Prevents `.pyc` file generation
+- `PYTHONUNBUFFERED=1` - Ensures immediate log output
+- `UV_HTTP_TIMEOUT=3000` - Extended timeout for dependency downloads
+
+**Dependency installation**: Uses `uv lock && uv sync --no-dev --locked` for reproducible, production-only dependencies.
+
+**Initialization**: Runs `populate_memvid.py` script during build to prepare the knowledge base.
+
+**Health check**: Automatic health monitoring every 30 seconds via the `/health` endpoint.
+
+<Warning>
+  The health check requires the application to respond within 30 seconds. Ensure your GLM API key is valid to prevent health check failures.
+</Warning>
+
+## Managing the deployment
+
+### Common Docker Compose commands
+
+<CodeGroup>
+
+```bash Start service
+docker compose up -d
+```
+
+```bash Stop service
+docker compose down
+```
+
+```bash View logs
+docker compose logs -f web
+```
+
+```bash Restart service
+docker compose restart
+```
+
+```bash Rebuild after changes
+docker compose up -d --build
+```
+
+```bash Check status
+docker compose ps
+```
+
+</CodeGroup>
+
+### Updating the deployment
+
+When updating Reze to a new version:
+
+<Steps>
+  <Step title="Pull latest changes">
+    ```bash
+    git pull origin main
+    ```
+  </Step>
+
+  <Step title="Rebuild and restart">
+    ```bash
+    docker compose up -d --build
+    ```
+  </Step>
+
+  <Step title="Verify update">
+    ```bash
+    docker compose logs -f web
+    curl http://localhost:8000/health
+    ```
+  </Step>
+</Steps>
+
+## Production considerations
+
+### Volume management
+
+For production deployments, consider using named volumes:
+
+```yaml
+services:
+  web:
+    volumes:
+      - memvid-data:/app/memory.mv2
+      - db-data:/app/database.db
+
+volumes:
+  memvid-data:
+  db-data:
+```
+
+### Database backend
+
+For production, use PostgreSQL instead of SQLite:
+
+```yaml compose.yml
+services:
+  web:
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/reze
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: reze
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:
+```
+
+### Resource limits
+
+Set resource constraints for production:
+
+```yaml
+services:
+  web:
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+```
+
+### Networking
+
+For reverse proxy setups (nginx, Traefik):
+
+```yaml
+services:
+  web:
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.reze.rule=Host(`reze.example.com`)"
+
+networks:
+  web:
+    external: true
+```
+
+## Troubleshooting
+
+### Container won't start
+
+Check logs for errors:
+```bash
+docker compose logs web
+```
+
+Common issues:
+- Missing or invalid API keys in `.env`
+- Port 8000 already in use
+- Insufficient memory
+
+### Health check failing
+
+The health check queries `http://localhost:8000/health`. If it fails:
+
+1. Verify the application is running:
+   ```bash
+   docker compose exec web ps aux
+   ```
+
+2. Test the health endpoint manually:
+   ```bash
+   docker compose exec web curl http://localhost:8000/health
+   ```
+
+3. Check for configuration errors in logs
+
+### Database connection issues
+
+If using PostgreSQL, ensure:
+- Database service is running: `docker compose ps db`
+- Credentials match in `.env` and `compose.yml`
+- Network connectivity: `docker compose exec web ping db`
+
+### Memory issues
+
+If the container runs out of memory:
+
+1. Check memory usage:
+   ```bash
+   docker stats reze
+   ```
+
+2. Increase Docker memory limits
+3. Consider using `memvid_index_kind: basic` for lower memory usage
+
+<Note>
+  For additional deployment options and advanced configurations, see the [environment variables reference](/deployment/environment-variables).
+</Note>

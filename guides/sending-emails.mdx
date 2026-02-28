@@ -1,0 +1,269 @@
+---
+title: Sending emails
+description: Send emails through Reze AI via natural chat interface
+---
+
+Reze AI sends emails through natural conversation. You don't need to construct API payloads - just chat with the agent and it will collect the necessary information and send the email.
+
+## How it works
+
+Reze uses the `send_email` tool to interact with the Resend.com API. The agent will:
+
+1. Understand your intent to send an email
+2. Ask for any missing information (recipient, subject, content)
+3. Confirm details with you
+4. Send the email via Resend.com
+5. Return the email ID for tracking
+
+<Note>
+  Reze will **never** send an email without collecting all required information first. If anything is missing, the agent will ask you for it.
+</Note>
+
+## Sending via chat
+
+### Basic example
+
+<Steps>
+  <Step title="Start a conversation">
+    Send a chat message requesting to send an email:
+    
+    ```bash
+    curl -X POST http://localhost:8000/api/chat/message \
+      -H "Content-Type: application/json" \
+      -d '{
+        "message": "Send an email to john@example.com",
+        "conversation_id": "your-conversation-id"
+      }'
+    ```
+  </Step>
+  
+  <Step title="Provide missing information">
+    Reze will ask for the subject and content:
+    
+    ```
+    Reze: "Sure! What should the subject be?"
+    ```
+    
+    Continue the conversation:
+    
+    ```bash
+    curl -X POST http://localhost:8000/api/chat/message \
+      -H "Content-Type: application/json" \
+      -d '{
+        "message": "Welcome to our service",
+        "conversation_id": "your-conversation-id"
+      }'
+    ```
+  </Step>
+  
+  <Step title="Email is sent">
+    Once all information is collected, Reze sends the email:
+    
+    ```
+    Reze: "✓ Email sent successfully! Email ID: abc123xyz. 
+           It should be delivered shortly. Would you like me 
+           to check its delivery status?"
+    ```
+  </Step>
+</Steps>
+
+### Providing all details at once
+
+You can also provide all details in a single message:
+
+```bash
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Send an email to sarah@example.com with subject \"Project Update\" and say \"The project is on track for Q1 delivery.\"",
+    "conversation_id": "your-conversation-id"
+  }'
+```
+
+Reze will understand all the parameters and send the email immediately:
+
+```
+Reze: "✓ Email sent successfully! Email ID: def456ghi. 
+       It should be delivered shortly."
+```
+
+## Required parameters
+
+The `send_email` tool requires three parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `to` | EmailStr | Recipient email address |
+| `subject` | string | Email subject line |
+| `html` | string | Email body content (HTML or plain text) |
+
+### Optional parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `from` | EmailStr | Sender email address (defaults to `RESEND_FROM_EMAIL`) |
+| `attachments` | list | List of attachment dictionaries (advanced) |
+
+## Understanding the tool
+
+Here's how the `send_email` tool is implemented in `src/tools/resend.py`:
+
+```python src/tools/resend.py
+async def send_email(ctx: RunContext, data: SendEmailRequest) -> str:
+    """Send an email via Resend.com API.
+
+    CALL THIS TOOL ONLY WHEN:
+    - User wants to send an email
+    - You have collected ALL required parameters (to, subject, content)
+    - User has confirmed the details are correct
+
+    REQUIRED PARAMETERS (all must be present):
+    - to: Valid email address of recipient
+    - subject: Email subject line
+    - html: Email body text or HTML
+
+    OPTIONAL PARAMETERS:
+    - from: Sender email (skip if not provided)
+
+    DO NOT CALL THIS TOOL if any required parameter is missing.
+    Ask the user for missing information first.
+    """
+    try:
+        result = await resend_service.send_email(data)
+
+        return f"✓ Email sent successfully! Email ID: {result.id}. It should be delivered shortly. Would you like me to check its delivery status?"
+    except Exception as e:
+        return f"✗ Failed to send email: {str(e)}. Please check the email address and try again."
+```
+
+## Response format
+
+When an email is successfully sent, Reze returns:
+
+- Confirmation message with checkmark (✓)
+- Email ID for tracking
+- Suggestion to check delivery status
+
+```python src/models/resend.py
+class EmailResponse(BaseModel):
+    id: str  # Unique email ID from Resend
+    status: str  # "queued", "sent", "delivered", etc.
+    created_at: str | None
+    from_email: str | None
+    to: list[str] | None
+    subject: str | None
+```
+
+## Complete flow example
+
+<CodeGroup>
+```bash Request 1: Initiate
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "I need to send an email",
+    "username": "alice"
+  }'
+```
+
+```text Response 1: Agent asks
+"Sure! I can help you send an email. 
+Who should I send it to?"
+```
+
+```bash Request 2: Provide recipient
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "bob@company.com",
+    "conversation_id": "abc-123"
+  }'
+```
+
+```text Response 2: Agent asks
+"Got it! What should the subject be?"
+```
+
+```bash Request 3: Provide subject
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Meeting notes from today",
+    "conversation_id": "abc-123"
+  }'
+```
+
+```text Response 3: Agent asks
+"Perfect! What should the email say?"
+```
+
+```bash Request 4: Provide content
+curl -X POST http://localhost:8000/api/chat/message \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Here are the key takeaways from our meeting today: 1) Launch date confirmed for March 15, 2) Budget approved, 3) Next meeting scheduled for Friday.",
+    "conversation_id": "abc-123"
+  }'
+```
+
+```text Response 4: Email sent
+"✓ Email sent successfully! Email ID: em_abc123xyz. 
+It should be delivered shortly. Would you like me to 
+check its delivery status?"
+```
+</CodeGroup>
+
+## Service implementation
+
+The underlying service (`src/services/resend.py`) handles the Resend API communication:
+
+```python src/services/resend.py
+async def send_email(self, request: SendEmailRequest) -> EmailResponse:
+    payload = {
+        "from": request.from_email or self.default_from,
+        "to": request.to,
+        "subject": request.subject,
+        "html": request.html_content,
+    }
+
+    if request.attachments:
+        payload["attachments"] = request.attachments
+
+    logger.info(f"Sending email to {request.to} with subject: {request.subject}")
+
+    response = await self.client.post(f"{self.base_url}/emails", json=payload)
+    response.raise_for_status()
+
+    result = response.json()
+    logger.success(f"Email sent successfully: {result.get('id', '')}")
+
+    return EmailResponse(
+        id=result.get("id"),
+        status=result.get("status", "queued"),
+        created_at=result.get("created_at"),
+        from_email=payload["from"],
+        to=[
+            result.get("to")
+        ] if isinstance(result.get("to"), str) else result.get("to", []),
+        subject=request.subject,
+    )
+```
+
+## Error handling
+
+If email sending fails, Reze will:
+
+- Return an error message with the reason
+- Suggest corrective action (e.g., "check the email address")
+- Keep the conversation context so you can retry
+
+```
+Reze: "✗ Failed to send email: Invalid recipient address. 
+       Please check the email address and try again."
+```
+
+## Next steps
+
+- Learn how to [check email status](/guides/checking-status)
+- Understand [conversation management](/guides/conversation-management)
+- See [configuration options](/guides/configuration) for customizing sender email
