@@ -1,0 +1,78 @@
+---
+title: Get system prompt
+description: Retrieve the current system prompt being used by the Reze AI agent
+---
+
+## GET /api/chat/system-prompt
+
+Retrieve the current system prompt being used by Reze. This is useful for debugging to understand the agent's instructions and behavior.
+
+<Warning>
+This endpoint is intended for debugging purposes only and should typically be disabled in production environments.
+</Warning>
+
+### Request
+
+No parameters required.
+
+```bash cURL
+curl http://localhost:8000/api/chat/system-prompt
+```
+
+### Response
+
+Returns the system prompt configuration.
+
+<ResponseField name="system_prompt" type="string" required>
+  The complete system prompt text used to instruct the AI agent
+</ResponseField>
+
+<ResponseField name="length" type="integer" required>
+  The character length of the system prompt
+</ResponseField>
+
+### Example response
+
+```json
+{
+  "system_prompt": "You are Reze, an AI assistant for Resend.com...",
+  "length": 1250
+}
+```
+
+### Implementation
+
+The endpoint is defined in `src/api/routers/chat_router.py:246-256`:
+
+```python
+@router.get("/system-prompt", summary="Get system prompt (for debugging)")
+async def get_system_prompt():
+    """
+    Get the current system prompt being used by Reze.
+
+    Useful for debugging to understand agent's instructions.
+    """
+    return {
+        "system_prompt": REZE_INSTRUCTIONS,
+        "length": len(REZE_INSTRUCTIONS),
+    }
+```
+
+<Info>
+The system prompt is imported from `src/services/prompt.py` and combines the agent's persona with detailed instructions for using tools and handling conversations.
+</Info>
+
+## Use cases
+
+- **Debugging**: Verify the agent is using the correct instructions
+- **Development**: Check prompt modifications during development
+- **Monitoring**: Audit the agent's configured behavior
+
+## Security considerations
+
+<Warning>
+The system prompt may contain sensitive information about your agent's capabilities and limitations. Consider restricting access to this endpoint in production by:
+- Disabling it when `DEBUG=False`
+- Requiring authentication
+- Using API key protection
+</Warning>

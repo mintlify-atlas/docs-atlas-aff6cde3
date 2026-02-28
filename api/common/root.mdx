@@ -1,0 +1,121 @@
+---
+title: Root endpoints
+description: Serve the chat interface and static assets
+---
+
+## GET /
+
+Serves the HTML chat interface for interacting with Reze through a web browser.
+
+### Request
+
+No parameters required.
+
+```bash cURL
+curl http://localhost:8000/
+```
+
+### Response
+
+Returns the `static/index.html` file if it exists, otherwise returns an error message.
+
+**Success (200 OK)**: Returns HTML content
+
+**Error (200 OK)**: Returns JSON error message if file not found
+
+```json
+{
+  "message": "Chat interface not found. Please ensure static/index.html exists."
+}
+```
+
+### Implementation
+
+The endpoint is defined in `src/api/routers/common_router.py:25-37`:
+
+```python
+@router.get("/", response_model=None)
+async def serve_chat_interface() -> FileResponse | dict[str, str]:
+    """Serve chat interface HTML page.
+
+    Returns:
+        FileResponse if index.html exists, otherwise error message
+    """
+    index_file = Path(__file__).parent.parent.parent.parent / "static" / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    return {
+        "message": "Chat interface not found. Please ensure static/index.html exists."
+    }
+```
+
+<Info>
+The chat interface provides a web-based UI for sending messages to Reze with real-time streaming responses and markdown rendering.
+</Info>
+
+---
+
+## GET /favicon.ico
+
+Serves the favicon for the web interface.
+
+### Request
+
+No parameters required.
+
+```bash cURL
+curl http://localhost:8000/favicon.ico
+```
+
+### Response
+
+Returns the `static/favicon.ico` file if it exists, otherwise returns an error message.
+
+**Success (200 OK)**: Returns favicon image
+
+**Error (200 OK)**: Returns JSON error message if file not found
+
+```json
+{
+  "message": "Favicon not found. Please ensure static/favicon.ico exists."
+}
+```
+
+### Implementation
+
+The endpoint is defined in `src/api/routers/common_router.py:40-50`:
+
+```python
+@router.get("/favicon.ico", response_model=None)
+async def serve_favicon() -> FileResponse | dict[str, str]:
+    """Serve favicon.ico file.
+
+    Returns:
+        FileResponse if favicon.ico exists, otherwise error message
+    """
+    favicon_file = Path(__file__).parent.parent.parent.parent / "static" / "favicon.ico"
+    if favicon_file.exists():
+        return FileResponse(favicon_file)
+    return {"message": "Favicon not found. Please ensure static/favicon.ico exists."}
+```
+
+---
+
+## Static files
+
+Static assets are served from the `/static` route and mounted in `src/api/app.py:61-62`:
+
+```python
+static_dir = Path(__file__).parent.parent.parent / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+```
+
+This includes:
+- `index.html` - Chat interface HTML
+- `favicon.ico` - Favicon image
+- `reze.png` - Reze logo
+- CSS and JavaScript files for the web interface
+
+<Note>
+The web interface uses vanilla JavaScript with `marked.js` for rendering markdown responses from the AI agent.
+</Note>

@@ -68,13 +68,15 @@
               "api/chat/message",
               "api/chat/conversations",
               "api/chat/history",
-              "api/chat/delete"
+              "api/chat/delete",
+              "api/chat/system-prompt"
             ]
           },
           {
             "group": "Common Endpoints",
             "pages": [
-              "api/common/health"
+              "api/common/health",
+              "api/common/root"
             ]
           },
           {
