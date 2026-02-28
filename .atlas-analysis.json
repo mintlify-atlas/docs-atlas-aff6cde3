@@ -1,0 +1,111 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "Reze",
+  "projectDescription": "A conversational AI assistant for Resend.com that helps users send emails, check delivery status, and manage communications through natural chat.",
+  "theme": "palm",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#7C3AED",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/conversation-flow",
+              "concepts/rag-system",
+              "concepts/ai-agent"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/configuration",
+              "guides/sending-emails",
+              "guides/checking-status",
+              "guides/populating-memvid",
+              "guides/conversation-management"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/environment-variables"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Chat Endpoints",
+            "pages": [
+              "api/chat/message",
+              "api/chat/conversations",
+              "api/chat/history",
+              "api/chat/delete"
+            ]
+          },
+          {
+            "group": "Common Endpoints",
+            "pages": [
+              "api/common/health"
+            ]
+          },
+          {
+            "group": "AI Tools",
+            "pages": [
+              "api/tools/send-email",
+              "api/tools/get-status",
+              "api/tools/get-attachments"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Additional Resources",
+            "pages": [
+              "resources/tech-stack",
+              "resources/troubleshooting",
+              "resources/contributing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Natural language email operations via chat interface",
+    "RAG-powered assistance using Memvid and Resend.com documentation",
+    "Real-time streaming responses with GLM 4.7 AI model",
+    "Multi-turn conversation memory with SQLite persistence",
+    "PydanticAI tools for email sending, status checking, and attachment retrieval",
+    "Username-based conversation isolation"
+  ],
+  "publicApiSurface": [
+    "POST /api/chat/message - Send message to AI agent with streaming response",
+    "GET /api/chat/conversations/{username} - List user conversations",
+    "GET /api/chat/conversations/{conversation_id}/history - Get conversation history",
+    "DELETE /api/chat/conversations/{conversation_id} - Delete conversation",
+    "GET /health - Health check endpoint",
+    "send_email(data: SendEmailRequest) - PydanticAI tool for sending emails",
+    "get_email_status(data: GetEmailStatusRequest) - PydanticAI tool for checking email status",
+    "get_email_attachments(data: GetEmailStatusRequest) - PydanticAI tool for retrieving attachments"
+  ]
+}
